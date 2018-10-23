@@ -1,0 +1,33 @@
+//
+// Copyright 2018 Deal, Inc
+// All Rights Reserved.
+//
+// @author: Denys Nahurnyi, Deal, Inc.
+// @email:  dnahurnyi@gmail.com
+// ---------------------------------------------------------------------------
+syntax = "proto3";
+
+package pb;
+
+import "google/api/annotations.proto";
+
+message CreateUserReq {
+  User user = 1;
+}
+
+message CreateUserResp {
+  uint64 result = 1;
+}
+
+message User {
+    string name = 1;
+    string surname = 2;
+}
+
+service dataMgrService {
+  rpc CreateUser (CreateUserReq) returns (CreateUserResp) {
+    option (google.api.http) = {
+        get: "/v1/changes/count"
+    };
+  }
+}
