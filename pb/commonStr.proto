@@ -1,0 +1,32 @@
+//
+// Copyright 2019
+//
+// @author: Denys Nahurnyi
+// @email:  dnahurnyi@gmail.com
+// ---------------------------------------------------------------------------
+syntax = "proto3";
+
+package pb;
+
+message ReqHdr {
+  string tid = 1; //transaction id associated with each request
+}
+
+message RespHdr {
+  string tid = 1; //transaction id associated with each response
+  string req_tid = 2; //tid of the request, this response is for
+  Error err = 3;
+}
+
+//Common error message which goes out with the response
+message Error {
+  serviceId service_id = 1; 
+  int32 code = 2; //Unique code
+  string user_message = 3; //User facing message. It goes hand-in-hand with the code above
+  string dev_details = 4; //Details for the developer. This will be a stack of errors
+  string url = 5; //URL giving more details about the error
+}
+
+enum serviceId {
+  DATA = 0;
+}

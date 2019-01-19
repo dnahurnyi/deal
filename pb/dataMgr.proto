@@ -1,8 +1,7 @@
 //
-// Copyright 2018 Deal, Inc
-// All Rights Reserved.
+// Copyright 2019
 //
-// @author: Denys Nahurnyi, Deal, Inc.
+// @author: Denys Nahurnyi
 // @email:  dnahurnyi@gmail.com
 // ---------------------------------------------------------------------------
 syntax = "proto3";
@@ -10,24 +9,44 @@ syntax = "proto3";
 package pb;
 
 import "google/api/annotations.proto";
+import "pb/commonStr.proto";
+
+message User {
+  string name = 1;
+  string surname = 2;
+}
 
 message CreateUserReq {
-  User user = 1;
+  ReqHdr req_hdr = 1;
+  User user = 2;
 }
 
 message CreateUserResp {
-  uint64 result = 1;
+  RespHdr resp_hdr = 1;
+  uint64 result = 2;
 }
 
-message User {
-    string name = 1;
-    string surname = 2;
+message GetUserReq {
+  ReqHdr req_hdr = 1;
+  string user_id = 2;
 }
 
-service dataMgrService {
+message GetUserResp {
+  RespHdr resp_hdr = 1;
+  User user = 2;
+}
+
+service DataService {
   rpc CreateUser (CreateUserReq) returns (CreateUserResp) {
     option (google.api.http) = {
-        get: "/v1/changes/count"
+        post: "/v1/data/user",
+        body: "*"
+    };
+  }
+  rpc GetUser (GetUserReq) returns (GetUserResp) {
+    option (google.api.http) = {
+        get: "/v1/data/user"
     };
   }
 }
+
