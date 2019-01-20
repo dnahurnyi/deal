@@ -1,0 +1,33 @@
+//
+// Copyright 2019
+//
+// @author: Denys Nahurnyi
+// @email:  dnahurnyi@gmail.com
+// ---------------------------------------------------------------------------
+syntax = "proto3";
+
+package pb;
+
+import "google/api/annotations.proto";
+import "pb/commonStr.proto";
+
+message LoginReq {
+  ReqHdr req_hdr = 1;
+  string email = 2;
+  string password = 3;
+}
+
+message LoginResp {
+  RespHdr resp_hdr = 1;
+  string token = 2;
+}
+
+service AuthService {
+  rpc Login (LoginReq) returns (LoginResp) {
+    option (google.api.http) = {
+        post: "/v1/auth/login",
+        body: "*"
+    };
+  }
+}
+
