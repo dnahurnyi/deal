@@ -13,7 +13,7 @@ import "pb/commonStr.proto";
 
 message LoginReq {
   ReqHdr req_hdr = 1;
-  string email = 2;
+  string username = 2;
   string password = 3;
 }
 

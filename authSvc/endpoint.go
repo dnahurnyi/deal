@@ -17,11 +17,11 @@ func makeLoginEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*pb.LoginReq)
 		tid := req.ReqHdr.Tid
-		_, err := svc.Login(ctx, req.GetEmail(), req.GetPassword())
+		token, err := svc.Login(ctx, req.GetUsername(), req.GetPassword())
 
 		return pb.LoginResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
-			Token:   "token",
+			Token:   token,
 		}, err
 	}
 }

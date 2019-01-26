@@ -1,45 +1,94 @@
 package authSvc
 
 import (
+	"crypto/rsa"
+	"errors"
 	"fmt"
-	"time"
+	"io/ioutil"
 
 	jwt "github.com/dgrijalva/jwt-go"
 )
 
-const mySecret = "secretWordDorJWTSign"
+const (
+	MySecret  = "secretWordDorJWTSign"
+	userIdKey = "userId"
+)
 
-func createToken(data string) (string, error) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"foo":  "bar",
-		"nbf":  time.Date(2015, 10, 10, 12, 0, 0, 0, time.UTC).Unix(),
-		"data": data,
-	})
-
-	// Sign and get the complete encoded token as a string using the secret
-	return token.SignedString([]byte(mySecret))
+type TokenData struct {
+	userId string
 }
 
-func checkToken(tokenStr string) error {
+func loadKeys(createNewKeys bool) (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	if createNewKeys {
+		err := createKeys()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	data, err := getFile("private.pem")
+	if err != nil {
+		fmt.Println("Failed to get `private.pem` key file")
+	}
+
+	rKey, err := jwt.ParseRSAPrivateKeyFromPEM(data)
+	if err != nil {
+		fmt.Println("Failed to convert PEM file to RSA private key")
+	}
+
+	data, err = getFile("public.pem")
+	if err != nil {
+		fmt.Println("Failed to get `public.pem` key file")
+	}
+
+	uKey, err := jwt.ParseRSAPublicKeyFromPEM(data)
+	if err != nil {
+		fmt.Println("Failed to convert PEM file to RSA public key")
+	}
+
+	return rKey, uKey, err
+}
+
+func createKeys() error {
+	// Need to be implemented
+	return nil
+}
+
+func getFile(filename string) ([]byte, error) {
+	dat, err := ioutil.ReadFile(filename)
+	if err != nil {
+		fmt.Println("Error: ", err)
+		return nil, err
+	}
+	return dat, err
+}
+
+func createToken(userID string, rKey interface{}) (string, error) {
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		userIdKey: userID,
+	})
+
+	return token.SignedString(rKey)
+}
+
+func checkToken(uKey interface{}, tokenStr string) (string, error) {
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 
-		// hmacSampleSecret is a []byte containing your secret, e.g. []byte("my_secret_key")
-		return []byte(mySecret), nil
+		return uKey, nil
 	})
-
 	if err != nil {
 		fmt.Println("Error parsing token:", err)
-		return err
+		return "", err
 	}
-
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		fmt.Println(claims["foo"], claims["data"])
-	} else {
-		fmt.Println(err)
+		if userId, ok := claims["userID"]; ok {
+			return userId.(string), err
+		}
+		fmt.Println("Token is invalid")
 	}
-	return err
+	return "", errors.New("Token is inappropriate")
 }

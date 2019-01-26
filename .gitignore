@@ -1,2 +1,4 @@
 *.pb.go
 *.pb.gw.go
+*.md
+*.pem

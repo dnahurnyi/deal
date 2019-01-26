@@ -8,6 +8,20 @@ syntax = "proto3";
 
 package pb;
 
+message HttpRequest {
+  map<string, string> headers = 1;
+  map<string, string> cookies = 2;
+}
+
+message Token {
+  map<string, string> content = 2;
+}
+
+message MetaInfo {
+  HttpRequest request = 1;
+  Token token = 2;
+}
+
 message ReqHdr {
   string tid = 1; //transaction id associated with each request
 }
