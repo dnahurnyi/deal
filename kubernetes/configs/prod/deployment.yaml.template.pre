@@ -1,0 +1,76 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {SERVICENAME}-deployment
+  namespace: nginx-ingress
+  labels:
+    app: {SERVICENAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {SERVICENAME}
+  template:
+    metadata:
+      labels:
+        app: {SERVICENAME}
+        fluentd: "true"
+    spec:
+      containers:
+      - name: {SERVICENAME}
+        image: {REPO_URI}/{SERVICENAME}:{VERSION}
+        env:
+        - name: USER
+          value: "{USER}"
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: AWS_REGION
+          value: {AWS_REGION}
+        - name: AWS_KMS_KEY_ID
+          value: {AWS_KMS_KEY_ID}
+        - name: BUILD_TYPE
+          value: {BUILD_TYPE}
+        - name: BUCKET_NAME
+          value: {BUCKET_NAME}
+        - name: APP_NAMESPACE
+          value: {APP_NAMESPACE}
+        ports:
+        - containerPort: {GRPCPORT}
+          name: grpc-port
+        - containerPort: {HTTPPORT}
+          name: rest-port
+        readinessProbe:
+          tcpSocket:
+            port: {GRPCPORT}
+          initialDelaySeconds: 5
+          periodSeconds: 2 
+        imagePullPolicy: Always
+---
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {SERVICENAME}
+  namespace: nginx-ingress
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {SERVICENAME}-deployment
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      targetAverageUtilization: 75
+

@@ -1,0 +1,32 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  namespace: nginx-ingress
+  labels:
+    app: {SERVICENAME}
+  name: {SERVICENAME}-service
+spec:
+  ports:
+  - port: {GRPCPORT}
+    protocol: TCP
+    targetPort: {GRPCPORT}
+    nodePort: {NODEGRPCPORT}
+    name: grpc-port
+  - port: {HTTPPORT}
+    protocol: TCP
+    targetPort: {HTTPPORT}
+    nodePort: {NODEHTTPPORT}
+    name: rest-port
+  selector:
+    app: {SERVICENAME}
+  type: NodePort
+status:
+  loadBalancer: {}

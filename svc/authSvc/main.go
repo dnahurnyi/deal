@@ -17,6 +17,7 @@ import (
 
 	"github.com/DenysNahurnyi/deal/authSvc"
 	"github.com/DenysNahurnyi/deal/common/grpc"
+	"github.com/DenysNahurnyi/deal/common/utils"
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/log"
 	"github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -35,11 +36,22 @@ func main() {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	fmt.Println("Hello world")
-	client, err := mongo.Connect(ctx, "mongodb://localhost:27017")
-	fmt.Println("Mongo error: ", err)
-
-	svc, _ := authSvc.NewService(logger, client)
+	client, err := mongo.Connect(ctx, "mongodb://n826:qwerty12345@ds055732.mlab.com:55732/travel")
+	if err != nil {
+		fmt.Println("Error connecting to mongo: ", err)
+		return
+	}
+	dataSvcClient, err := utils.CreateDataSvcClient(logger)
+	if err != nil {
+		fmt.Println("Error creating client for dataSvc: ", err)
+		return
+	}
+	svc, err := authSvc.NewService(logger, client, dataSvcClient)
+	if err != nil {
+		fmt.Println("Error creating auth service: ", err)
+		return
+	}
+	fmt.Println("[Auth service started]")
 	go func() {
 		listener, err := net.Listen("tcp", grpcPort)
 		if err != nil {
@@ -54,7 +66,6 @@ func main() {
 	}()
 
 	go func() {
-		fmt.Println("#3")
 		opts := grpcutils.OptsGrpcGw()
 		mux := runtime.NewServeMux()
 		err := pb.RegisterAuthServiceHandlerFromEndpoint(ctx, mux, grpcPort, opts)
@@ -65,7 +76,6 @@ func main() {
 		errChan <- http.ListenAndServe(":8013", mux)
 	}()
 	go func() {
-		fmt.Println("#4")
 		signalCh := make(chan os.Signal, 1)
 		signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 		logger.Log("Listening for signals")

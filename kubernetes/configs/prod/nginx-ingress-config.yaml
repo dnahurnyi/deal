@@ -1,0 +1,19 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: nginx-ingress-config
+  namespace: nginx-ingress
+data:
+  proxy-connect-timeout:  "60s"
+  proxy-read-timeout: "60s"
+  redirect-to-https: "True"
+  #hsts: "True"
+  #ssl-redirect: "false"
+  #use-proxy-protocol: "true"

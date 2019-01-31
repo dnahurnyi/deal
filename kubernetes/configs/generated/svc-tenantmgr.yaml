@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: tenantmgr
+  name: tenantmgr-service
+spec:
+  ports:
+  - port: 8094
+    protocol: TCP
+    targetPort: 8094
+    nodePort: 30094
+    name: grpc-port
+  - port: 8093
+    protocol: TCP
+    targetPort: 8093
+    nodePort: 30093
+    name: rest-port
+  selector:
+    app: tenantmgr
+  type: NodePort
+status:
+  loadBalancer: {}

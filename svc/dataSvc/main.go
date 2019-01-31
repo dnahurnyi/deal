@@ -35,10 +35,17 @@ func main() {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	client, err := mongo.Connect(ctx, "mongodb://localhost:27017")
-	fmt.Println("Mongo error: ", err)
+	client, err := mongo.Connect(ctx, "mongodb://n826:qwerty12345@ds055732.mlab.com:55732/travel")
+	if err != nil {
+		fmt.Println("Failed to connect to mongo, err: ", err)
+		return
+	}
 
-	svc, _ := dataSvc.NewService(logger, client)
+	svc, err := dataSvc.NewService(logger, client)
+	if err != nil {
+		fmt.Println("Failed to create new data service: ", err)
+		return
+	}
 	go func() {
 		listener, err := net.Listen("tcp", grpcPort)
 		if err != nil {

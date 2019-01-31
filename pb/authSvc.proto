@@ -10,6 +10,7 @@ package pb;
 
 import "google/api/annotations.proto";
 import "pb/commonStr.proto";
+import "pb/dataSvc.proto";
 
 message LoginReq {
   ReqHdr req_hdr = 1;
@@ -22,10 +23,27 @@ message LoginResp {
   string token = 2;
 }
 
+message SignUpReq {
+  ReqHdr req_hdr = 1;
+  string password = 2;
+  CreateUserReq user_req = 3;
+}
+
+message SignUpResp {
+  RespHdr resp_hdr = 1;
+  string user_id = 2;
+}
+
 service AuthService {
   rpc Login (LoginReq) returns (LoginResp) {
     option (google.api.http) = {
         post: "/v1/auth/login",
+        body: "*"
+    };
+  }
+  rpc SignUp (SignUpReq) returns (SignUpResp) {
+    option (google.api.http) = {
+        post: "/v1/auth/signup",
         body: "*"
     };
   }

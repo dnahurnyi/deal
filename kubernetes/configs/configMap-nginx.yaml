@@ -1,0 +1,25 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx
+data:
+  # Adding new entries here will make them appear as files in the deployment.
+  # Please update k8s.io/k8s.io/README.md when you update this file
+  nginx.conf: |
+
+    events {
+      worker_connections 4096;
+    } 
+    http {
+      server {
+        listen 80 default_server;
+      }
+    }
+

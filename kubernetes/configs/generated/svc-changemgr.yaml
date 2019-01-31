@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: changemgr
+  name: changemgr-service
+spec:
+  ports:
+  - port: 8102
+    protocol: TCP
+    targetPort: 8102
+    nodePort: 30102
+    name: grpc-port
+  - port: 8101
+    protocol: TCP
+    targetPort: 8101
+    nodePort: 30101
+    name: rest-port
+  selector:
+    app: changemgr
+  type: NodePort
+status:
+  loadBalancer: {}

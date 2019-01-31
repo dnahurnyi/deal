@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: graphdbmgr
+  name: graphdbmgr-service
+spec:
+  ports:
+  - port: 8084
+    protocol: TCP
+    targetPort: 8084
+    nodePort: 30084
+    name: grpc-port
+  - port: 8083
+    protocol: TCP
+    targetPort: 8083
+    nodePort: 30083
+    name: rest-port
+  selector:
+    app: graphdbmgr
+  type: NodePort
+status:
+  loadBalancer: {}

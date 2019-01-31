@@ -25,3 +25,16 @@ func makeLoginEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeSignUpEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.SignUpReq)
+		tid := req.ReqHdr.Tid
+		userId, err := svc.SignUp(ctx, req.GetUserReq(), req.GetPassword())
+
+		return pb.SignUpResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+			UserId:  userId,
+		}, err
+	}
+}

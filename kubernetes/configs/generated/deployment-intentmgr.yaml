@@ -1,0 +1,47 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1beta2 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: intentmgr-deployment
+  labels:
+    app: intentmgr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: intentmgr
+  template:
+    metadata:
+      labels:
+        app: intentmgr
+    spec:
+      containers:
+      - name: intentmgr
+        image: intentmgr:v1
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          value: AKIAIOSOR73KN3SM3VQQ 
+        - name: AWS_SECRET_ACCESS_KEY
+          value: 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 
+        - name: AWS_REGION
+          value: us-west-2
+        - name: USER
+          value: "n826"
+        - name: APP_NAMESPACE
+          value: default
+        ports:
+        - containerPort: 8096
+          name: grpc-port
+        - containerPort: 8095
+          name: rest-port
+        readinessProbe:
+          tcpSocket:
+            port: 8096
+          initialDelaySeconds: 5
+          periodSeconds: 2 

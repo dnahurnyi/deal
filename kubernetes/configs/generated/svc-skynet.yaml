@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: skynet
+  name: skynet-service
+spec:
+  ports:
+  - port: 8092
+    protocol: TCP
+    targetPort: 8092
+    nodePort: 30092
+    name: grpc-port
+  - port: 8091
+    protocol: TCP
+    targetPort: 8091
+    nodePort: 30091
+    name: rest-port
+  selector:
+    app: skynet
+  type: NodePort
+status:
+  loadBalancer: {}

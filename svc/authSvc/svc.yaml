@@ -1,0 +1,30 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: authsvc
+  name: authsvc-service
+spec:
+  ports:
+  - port: 8012
+    protocol: TCP
+    targetPort: 8012
+    nodePort: 30252
+    name: grpc-port
+  - port: 8013
+    protocol: TCP
+    targetPort: 8013
+    nodePort: 30253
+    name: rest-port
+  selector:
+    app: authsvc
+  type: NodePort
+status:
+  loadBalancer: {}

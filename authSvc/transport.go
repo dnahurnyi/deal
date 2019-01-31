@@ -15,7 +15,8 @@ import (
 )
 
 type grpcServer struct {
-	login grpctransport.Handler
+	login  grpctransport.Handler
+	signUp grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
@@ -27,6 +28,11 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
 			makeLoginEndpoint(svc),
 			decodeLoginReq,
 			encodeLoginResp,
+			options...),
+		signUp: grpctransport.NewServer(
+			makeSignUpEndpoint(svc),
+			decodeSignUpReq,
+			encodeSignUpResp,
 			options...),
 	}
 }
@@ -46,5 +52,23 @@ func decodeLoginReq(_ context.Context, grpcReq interface{}) (interface{}, error)
 
 func encodeLoginResp(_ context.Context, response interface{}) (interface{}, error) {
 	resp := response.(pb.LoginResp)
+	return &resp, nil
+}
+
+func (s *grpcServer) SignUp(ctx context.Context, req *pb.SignUpReq) (*pb.SignUpResp, error) {
+	_, resp, err := s.signUp.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.SignUpResp), nil
+}
+
+func decodeSignUpReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.SignUpReq)
+	return req, nil
+}
+
+func encodeSignUpResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.SignUpResp)
 	return &resp, nil
 }

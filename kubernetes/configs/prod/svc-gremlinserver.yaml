@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: gremlinserver
+  name: gremlinserver-service
+  namespace: nginx-ingress
+spec:
+  ports:
+  - port: 8182
+    protocol: TCP
+    targetPort: 8182
+    nodePort: 30085
+    name: ws-port
+  selector:
+    app: gremlinserver
+  type: NodePort
+status:
+  loadBalancer: {}

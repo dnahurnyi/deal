@@ -9,66 +9,103 @@ package authSvc
 import (
 	"context"
 	"crypto/rsa"
+	"errors"
 	"fmt"
 
-	"github.com/mongodb/mongo-go-driver/bson/primitive"
+	"github.com/DenysNahurnyi/deal/pb/generated/pb"
 
 	"github.com/go-kit/kit/log"
-	"github.com/mongodb/mongo-go-driver/bson"
 	"github.com/mongodb/mongo-go-driver/mongo"
 )
 
 type Service interface {
 	Login(ctx context.Context, username, password string) (string, error)
+	SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error)
 }
 
 type service struct {
-	envType     string
-	mongoClient *mongo.Client
-	uKey        *rsa.PublicKey
-	rKey        *rsa.PrivateKey
-	table       *mongo.Collection
+	envType       string
+	mongoClient   *mongo.Client
+	uKey          *rsa.PublicKey
+	rKey          *rsa.PrivateKey
+	table         *mongo.Collection
+	dataSvcClient pb.DataServiceClient
 }
 
-func NewService(logger log.Logger, mgc *mongo.Client) (Service, error) {
+func NewService(logger log.Logger, mgc *mongo.Client, dataSvcClient *pb.DataServiceClient) (Service, error) {
 	rKey, uKey, err := loadKeys(false)
 	if err != nil {
 		fmt.Println("Failed to get keys")
 		return nil, err
 	}
-	collection := mgc.Database("testing").Collection("users")
+	collection := mgc.Database("travel").Collection("usersSecure")
+	fmt.Println("[travel DB connected]")
 
 	return &service{
-		envType:     "test",
-		mongoClient: mgc,
-		uKey:        uKey,
-		rKey:        rKey,
-		table:       collection,
+		envType:       "test",
+		mongoClient:   mgc,
+		uKey:          uKey,
+		rKey:          rKey,
+		table:         collection,
+		dataSvcClient: *dataSvcClient,
 	}, nil
 }
 
-type UserDB struct {
-	Name    string
-	Surname string
-	Id      primitive.ObjectID `bson:"_id,omitempty"`
-}
+func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error) {
+	fmt.Println("[SignUp method called]")
+	user := UserDB{
+		Username: userReq.GetUser().GetUsername(),
+		Password: password,
+	}
 
-func (user UserDB) GetUserID() string {
-	return user.Id.Hex()
+	// Check if this user exist in secure DB
+	userGet, err := GetUserByUsernameDB(ctx, user.Username, s.table)
+	if err != nil {
+		fmt.Println("Failed to get user from DB")
+		return "", err
+	}
+	if len(userGet.GetUsername()) > 0 {
+		fmt.Println("[WARNING] user already exist")
+		return "", errors.New("User already exist")
+	}
+
+	// Create user in common DB
+	createUserDataRes, err := s.dataSvcClient.CreateUser(ctx, userReq)
+	if err != nil {
+		fmt.Println("Failed to create user in dataSvc: ", err)
+		return "", err
+	}
+	user.TokenId = createUserDataRes.UserId
+
+	// Create user in secure table
+	userID, err := CreateUserDB(ctx, &user, s.table)
+	if err != nil {
+		fmt.Println("Failed to create user in dataSvc: ", err)
+		// Call dataSvc to delete user
+		return "", err
+	}
+	return userID, nil
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (string, error) {
-	userDB := UserDB{}
+	// userDB := UserDB{}
 
-	err := s.table.FindOne(ctx, bson.D{
-		{Key: "username", Value: username},
-		{Key: "password", Value: password},
-	}).Decode(&userDB)
-	if err != nil {
-		return "", err
-	}
+	// res, err := table.InsertOne(ctx, *user)
+	// if err != nil {
+	// 	fmt.Println("Error creating user in mongo: ", err)
+	// }
+	// return res.InsertedID.(primitive.ObjectID).Hex(), err
 
-	return createToken(userDB.GetUserID(), s.rKey)
+	// err := s.table.FindOne(ctx, bson.D{
+	// 	{Key: "username", Value: username},
+	// 	{Key: "password", Value: password},
+	// }).Decode(&userDB)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	// return createToken(userDB.GetUserID(), s.rKey)
+	return "in development", nil
 
 	// token, err := createToken(userDB.Id.Hex())
 	// if err != nil {

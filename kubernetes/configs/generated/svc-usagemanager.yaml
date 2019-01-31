@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: usagemanager
+  name: usagemanager-service
+spec:
+  ports:
+  - port: 8106
+    protocol: TCP
+    targetPort: 8106
+    nodePort: 30106
+    name: grpc-port
+  - port: 8105
+    protocol: TCP
+    targetPort: 8105
+    nodePort: 30105
+    name: rest-port
+  selector:
+    app: usagemanager
+  type: NodePort
+status:
+  loadBalancer: {}

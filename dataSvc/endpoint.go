@@ -8,6 +8,7 @@ package dataSvc
 
 import (
 	"context"
+	"fmt"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/endpoint"
@@ -17,12 +18,12 @@ func makeCreateUserEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*pb.CreateUserReq)
 		tid := req.ReqHdr.Tid
-		svc.CreateUser(ctx, req.GetUser())
+		userId, err := svc.CreateUser(ctx, req.GetUser())
 
 		return pb.CreateUserResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
-			// Status:  "tenant",
-		}, nil
+			UserId:  userId,
+		}, err
 	}
 }
 
@@ -30,11 +31,18 @@ func makeGetUserEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*pb.GetUserReq)
 		tid := req.ReqHdr.Tid
-		svc.GetUser(ctx, req.GetUserId())
+		user, err := svc.GetUser(ctx, req.GetUserId())
 
 		return pb.GetUserResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
-			User:    nil,
-		}, nil
+			User:    user,
+		}, err
+	}
+}
+
+func makeReadinessEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		fmt.Println("Readiness called")
+		return pb.Blank{}, nil
 	}
 }

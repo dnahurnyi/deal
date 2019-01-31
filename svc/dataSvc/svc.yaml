@@ -1,0 +1,30 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: datasvc
+  name: datasvc-service
+spec:
+  ports:
+  - port: 8010
+    protocol: TCP
+    targetPort: 8010
+    nodePort: 30250
+    name: grpc-port
+  - port: 8011
+    protocol: TCP
+    targetPort: 8011
+    nodePort: 30251
+    name: rest-port
+  selector:
+    app: datasvc
+  type: NodePort
+status:
+  loadBalancer: {}

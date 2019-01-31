@@ -8,6 +8,8 @@ syntax = "proto3";
 
 package pb;
 
+message Blank {}
+
 message HttpRequest {
   map<string, string> headers = 1;
   map<string, string> cookies = 2;

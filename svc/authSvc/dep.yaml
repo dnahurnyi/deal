@@ -1,0 +1,30 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1beta2 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: authsvc-deployment
+  labels:
+    app: authsvc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: authsvc
+  template:
+    metadata:
+      labels:
+        app: authsvc
+    spec:
+      containers:
+      - name: authsvc
+        image: n826/travel:authsvc-v3
+        ports:
+        - containerPort: 8012
+          name: grpc-port
+        - containerPort: 8013
+          name: rest-port

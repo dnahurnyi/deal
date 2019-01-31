@@ -1,0 +1,31 @@
+#
+# Copyright 2018 Orkus, Inc
+# All Rights Reserved.
+#
+# @author: Denys Nahurnyi.
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  creationTimestamp: null
+  labels:
+    app: graphquerymgr
+  name: graphquerymgr-service
+spec:
+  ports:
+  - port: 8090
+    protocol: TCP
+    targetPort: 8090
+    nodePort: 30090
+    name: grpc-port
+  - port: 8089
+    protocol: TCP
+    targetPort: 8089
+    nodePort: 30089
+    name: rest-port
+  selector:
+    app: graphquerymgr
+  type: NodePort
+status:
+  loadBalancer: {}

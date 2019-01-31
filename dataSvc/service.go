@@ -8,63 +8,68 @@ package dataSvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/DenysNahurnyi/deal/common/utils"
 	"github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/log"
-	"github.com/mongodb/mongo-go-driver/bson"
 	"github.com/mongodb/mongo-go-driver/mongo"
-	"github.com/mongodb/mongo-go-driver/mongo/readpref"
 )
 
 type Service interface {
-	CreateUser(ctx context.Context, user *pb.User) (bool, error)
+	CreateUser(ctx context.Context, user *pb.User) (string, error)
 	GetUser(ctx context.Context, userId string) (*pb.User, error)
 }
 
 type service struct {
 	envType     string
 	mongoClient *mongo.Client
+	table       *mongo.Collection
 }
 
 func NewService(logger log.Logger, mgc *mongo.Client) (Service, error) {
+	table := mgc.Database("travel").Collection("users")
+	authSvc := utils.CreateAuthSvcClient(logger)
+	fmt.Println("authSvc: ", authSvc)
+	fmt.Println("Now I will call auth")
+	ctx := context.Background()
+	loginResp, err := authSvc.Login(ctx, &pb.LoginReq{
+		ReqHdr: &pb.ReqHdr{
+			Tid: "Transaction ID",
+		},
+		Username: "pisatel",
+		Password: "123467",
+	})
+	fmt.Println("loginResp, err: ", loginResp, err)
 	return &service{
 		envType:     "test",
 		mongoClient: mgc,
+		table:       table,
 	}, nil
 }
 
-func (s *service) CreateUser(ctx context.Context, user *pb.User) (bool, error) {
-	fmt.Println("Your user is: ", *user)
-	err := s.mongoClient.Ping(ctx, readpref.Primary())
+func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, error) {
+	userGet, err := GetUserByUsernameDB(ctx, userReq.GetUsername(), s.table)
 	if err != nil {
-		fmt.Println("Error connecting to the DB: ", err)
-		return false, err
+		fmt.Println("Failed to get user from DB")
+		return "", err
 	}
-	collection := s.mongoClient.Database("testing").Collection("users")
-	res, err := collection.InsertOne(ctx, *user)
-	id := res.InsertedID
-	fmt.Println("Id of inserted: ", id)
-	return true, nil
+	if len(userGet.GetUsername()) > 0 {
+		fmt.Println("[WARNING] user already exist")
+		return "", errors.New("User already exist")
+	}
+
+	userID, err := CreateUserDB(ctx, &UserDB{
+		Name:     userReq.GetName(),
+		Surname:  userReq.GetSurname(),
+		Username: userReq.GetUsername(),
+	}, s.table)
+	return userID, err
 }
 
-type UserDBStruct struct {
-	name    string
-	surname string
-}
+func (s *service) GetUser(ctx context.Context, userID string) (*pb.User, error) {
+	// userId, err := grpcutils.GetUserIDFromJWT(ctx)
 
-func (s *service) GetUser(ctx context.Context, userId string) (*pb.User, error) {
-	err := s.mongoClient.Ping(ctx, readpref.Primary())
-	if err != nil {
-		fmt.Println("Error connecting to the DB: ", err)
-		return nil, err
-	}
-	collection := s.mongoClient.Database("testing").Collection("users")
-	user := pb.User{}
-	err = collection.FindOne(ctx, bson.D{{Key: "name", Value: "Ben"}}).Decode(&user)
-	if err != nil {
-		fmt.Println("Error searching user: ", err)
-	}
-	fmt.Println("Searching user result: ", user)
-	return nil, nil
+	return GetUserByIdDB(ctx, userID, s.table)
 }

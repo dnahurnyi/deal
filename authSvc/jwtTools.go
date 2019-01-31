@@ -19,6 +19,7 @@ type TokenData struct {
 }
 
 func loadKeys(createNewKeys bool) (*rsa.PrivateKey, *rsa.PublicKey, error) {
+	return nil, nil, nil
 	if createNewKeys {
 		err := createKeys()
 		if err != nil {
@@ -26,7 +27,8 @@ func loadKeys(createNewKeys bool) (*rsa.PrivateKey, *rsa.PublicKey, error) {
 		}
 	}
 
-	data, err := getFile("private.pem")
+	data, err := getFile("/usr/bin/private.pem")
+	// data, err := getFile("private.pem")
 	if err != nil {
 		fmt.Println("Failed to get `private.pem` key file")
 	}
@@ -36,7 +38,8 @@ func loadKeys(createNewKeys bool) (*rsa.PrivateKey, *rsa.PublicKey, error) {
 		fmt.Println("Failed to convert PEM file to RSA private key")
 	}
 
-	data, err = getFile("public.pem")
+	data, err = getFile("/usr/bin/public.pem")
+	// data, err = getFile("public.pem")
 	if err != nil {
 		fmt.Println("Failed to get `public.pem` key file")
 	}
