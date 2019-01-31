@@ -39,7 +39,6 @@ func NewService(logger log.Logger, mgc *mongo.Client, dataSvcClient *pb.DataServ
 		return nil, err
 	}
 	collection := mgc.Database("travel").Collection("usersSecure")
-	fmt.Println("[travel DB connected]")
 
 	return &service{
 		envType:       "test",
@@ -88,46 +87,15 @@ func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, passwor
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (string, error) {
-	// userDB := UserDB{}
+	fmt.Println("[In create token method]")
+	userGet, err := GetUserByUsernameDB(ctx, username, s.table)
+	if err != nil {
+		fmt.Println("Failed to get user from DB")
+		return "", err
+	}
+	if len(userGet.GetId()) == 0 {
+		return "", errors.New("User does not exist")
+	}
 
-	// res, err := table.InsertOne(ctx, *user)
-	// if err != nil {
-	// 	fmt.Println("Error creating user in mongo: ", err)
-	// }
-	// return res.InsertedID.(primitive.ObjectID).Hex(), err
-
-	// err := s.table.FindOne(ctx, bson.D{
-	// 	{Key: "username", Value: username},
-	// 	{Key: "password", Value: password},
-	// }).Decode(&userDB)
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// return createToken(userDB.GetUserID(), s.rKey)
-	return "in development", nil
-
-	// token, err := createToken(userDB.Id.Hex())
-	// if err != nil {
-	// 	fmt.Println("Error creating token:", err)
-	// 	return "", err
-	// }
-	// fmt.Println("#1")
-	// err = createKeys("SuperSecret")
-	// obId, err := primitive.ObjectIDFromHex("5c43766218b7b643868fab0f")
-	// fmt.Println("obId, err: ", obId, err)
-	// if err != nil {
-	// 	return "", err
-	// }
-	// primitive.ObjectID
-	// err = collection.FindOne(ctx, bson.D{{Key: "_id", Value: obId}}).Decode(&user)
-	// fmt.Println("user:", user)
-	// collection.FindId(bson.ObjectIdHex("5a2a75f777e864d018131a59")).One(&job)
-	// err := s.mongoClient.Ping(ctx, readpref.Primary())
-	// if err != nil {
-	// 	fmt.Println("Error connecting to the DB: ", err)
-	// 	return false, err
-	// }
-	// collection := s.mongoClient.Database("testing").Collection("users")
-	// res, err := collection.InsertOne(ctx, *user)
+	return createToken(userGet.GetId(), s.rKey)
 }

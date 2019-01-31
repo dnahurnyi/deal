@@ -22,9 +22,14 @@ spec:
     spec:
       containers:
       - name: authsvc
-        image: n826/travel:authsvc-v3
+        image: n826/travel:authsvc-v9
         ports:
         - containerPort: 8012
           name: grpc-port
         - containerPort: 8013
           name: rest-port
+        readinessProbe:
+          tcpSocket:
+            port: 8012
+          initialDelaySeconds: 5
+          periodSeconds: 2 

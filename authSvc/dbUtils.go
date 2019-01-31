@@ -43,6 +43,7 @@ func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Coll
 	userRes := &pb.User{
 		Username: userDB.Username,
 		Password: userDB.Password,
+		Id:       userDB.TokenId,
 	}
 	return userRes, err
 }

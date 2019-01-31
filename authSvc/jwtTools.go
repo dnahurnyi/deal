@@ -19,7 +19,6 @@ type TokenData struct {
 }
 
 func loadKeys(createNewKeys bool) (*rsa.PrivateKey, *rsa.PublicKey, error) {
-	return nil, nil, nil
 	if createNewKeys {
 		err := createKeys()
 		if err != nil {
