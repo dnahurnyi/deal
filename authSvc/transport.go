@@ -15,8 +15,9 @@ import (
 )
 
 type grpcServer struct {
-	login  grpctransport.Handler
-	signUp grpctransport.Handler
+	login            grpctransport.Handler
+	signUp           grpctransport.Handler
+	getCheckTokenKey grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
@@ -34,7 +35,30 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
 			decodeSignUpReq,
 			encodeSignUpResp,
 			options...),
+		getCheckTokenKey: grpctransport.NewServer(
+			makeGetCheckTokenKeyEndpoint(svc),
+			decodeEmptyReq,
+			encodeCheckTokenKeyResp,
+			options...),
 	}
+}
+
+func (s *grpcServer) GetCheckTokenKey(ctx context.Context, req *pb.EmptyReq) (*pb.CheckTokenKeyResp, error) {
+	_, resp, err := s.getCheckTokenKey.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.CheckTokenKeyResp), nil
+}
+
+func decodeEmptyReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.EmptyReq)
+	return req, nil
+}
+
+func encodeCheckTokenKeyResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.CheckTokenKeyResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) Login(ctx context.Context, req *pb.LoginReq) (*pb.LoginResp, error) {

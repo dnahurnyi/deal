@@ -34,6 +34,13 @@ message SignUpResp {
   string user_id = 2;
 }
 
+message CheckTokenKeyResp {
+  RespHdr resp_hdr = 1;
+  string n_base64 = 2; // bytes
+  bool is_base_int64 = 3;
+  int64 e = 4;
+}
+
 service AuthService {
   rpc Login (LoginReq) returns (LoginResp) {
     option (google.api.http) = {
@@ -45,6 +52,11 @@ service AuthService {
     option (google.api.http) = {
         post: "/v1/auth/signup",
         body: "*"
+    };
+  }
+  rpc GetCheckTokenKey (EmptyReq) returns (CheckTokenKeyResp) {
+    option (google.api.http) = {
+        get: "/v1/auth/key",
     };
   }
 }

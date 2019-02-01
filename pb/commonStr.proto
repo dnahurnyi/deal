@@ -24,6 +24,10 @@ message MetaInfo {
   Token token = 2;
 }
 
+message EmptyReq {
+  ReqHdr req_hdr = 1;
+}
+
 message ReqHdr {
   string tid = 1; //transaction id associated with each request
 }

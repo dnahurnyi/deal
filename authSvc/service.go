@@ -9,6 +9,7 @@ package authSvc
 import (
 	"context"
 	"crypto/rsa"
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -21,6 +22,7 @@ import (
 type Service interface {
 	Login(ctx context.Context, username, password string) (string, error)
 	SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error)
+	GetKey(ctx context.Context) (string, bool, int64, error)
 }
 
 type service struct {
@@ -41,12 +43,12 @@ func NewService(logger log.Logger, mgc *mongo.Client, dataSvcClient *pb.DataServ
 	collection := mgc.Database("travel").Collection("usersSecure")
 
 	return &service{
-		envType:       "test",
-		mongoClient:   mgc,
-		uKey:          uKey,
-		rKey:          rKey,
-		table:         collection,
-		dataSvcClient: *dataSvcClient,
+		envType:     "test",
+		mongoClient: mgc,
+		uKey:        uKey,
+		rKey:        rKey,
+		table:       collection,
+		// dataSvcClient: *dataSvcClient,
 	}, nil
 }
 
@@ -98,4 +100,23 @@ func (s *service) Login(ctx context.Context, username, password string) (string,
 	}
 
 	return createToken(userGet.GetId(), s.rKey)
+}
+
+func (s *service) GetKey(ctx context.Context) (string, bool, int64, error) {
+	fmt.Println("[Get key method]")
+	uKey := s.uKey
+	if uKey == nil {
+		msg := "Public key is not present in Auth service"
+		fmt.Println("[LOG]:", msg)
+		return "", false, 0, errors.New(msg)
+	}
+	e := uKey.E
+	isBaseInt64 := uKey.N.IsInt64()
+	nBytes := uKey.N.Bytes()
+	if len(nBytes) == 0 {
+		msg := "Bytes of public key is not valid"
+		fmt.Println("[LOG]:", msg)
+		return "", false, 0, errors.New(msg)
+	}
+	return base64.StdEncoding.EncodeToString(nBytes), isBaseInt64, int64(e), nil
 }
