@@ -52,3 +52,15 @@ func makeGetCheckTokenKeyEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeDeleteSecureUserReqEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.DeleteSecureUserReq)
+		tid := req.ReqHdr.Tid
+		err := svc.DeleteUser(ctx, req.GetTokenId())
+
+		return pb.EmptyResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}

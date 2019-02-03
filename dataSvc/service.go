@@ -20,7 +20,8 @@ import (
 
 type Service interface {
 	CreateUser(ctx context.Context, user *pb.User) (string, error)
-	GetUser(ctx context.Context, userId string) (*pb.User, error)
+	GetUser(ctx context.Context) (*pb.User, error)
+	DeleteUser(ctx context.Context) (*pb.User, error)
 	GetPubKey() *rsa.PublicKey
 }
 
@@ -79,15 +80,40 @@ func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, err
 	return userID, err
 }
 
-func (s *service) GetUser(ctx context.Context, userID string) (*pb.User, error) {
-	userId, err := grpcutils.GetUserIDFromJWT(ctx)
+func (s *service) GetUser(ctx context.Context) (*pb.User, error) {
+	userID, err := grpcutils.GetUserIDFromJWT(ctx)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
 		return nil, err
 	}
-	fmt.Println("User id from JWT is: ", userId)
+	fmt.Println("User id from JWT is: ", userID)
 
-	return GetUserByIdDB(ctx, userId, s.table)
+	return GetUserByIdDB(ctx, userID, s.table)
+}
+
+func (s *service) DeleteUser(ctx context.Context) (*pb.User, error) {
+	userID, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return nil, err
+	}
+
+	user, err := DeleteUserByIdDB(ctx, userID, s.table)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to delete user, err: ", err)
+		return nil, err
+	}
+	_, err = s.authSvcClient.DeleteUser(ctx, &pb.DeleteSecureUserReq{
+		ReqHdr: &pb.ReqHdr{
+			Tid: "some transaction id to delete user in auth",
+		},
+		TokenId: userID,
+	})
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to delete user in auth service, err: ", err)
+		return nil, err
+	}
+	return user, nil
 }
 
 func (s *service) GetPubKey() *rsa.PublicKey {

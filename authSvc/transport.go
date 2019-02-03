@@ -17,6 +17,7 @@ import (
 type grpcServer struct {
 	login            grpctransport.Handler
 	signUp           grpctransport.Handler
+	deleteUser       grpctransport.Handler
 	getCheckTokenKey grpctransport.Handler
 }
 
@@ -40,7 +41,30 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
 			decodeEmptyReq,
 			encodeCheckTokenKeyResp,
 			options...),
+		deleteUser: grpctransport.NewServer(
+			makeDeleteSecureUserReqEndpoint(svc),
+			decodeDeleteUserReq,
+			encodeEmptyResp,
+			options...),
 	}
+}
+
+func (s *grpcServer) DeleteUser(ctx context.Context, req *pb.DeleteSecureUserReq) (*pb.EmptyResp, error) {
+	_, resp, err := s.deleteUser.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.EmptyResp), nil
+}
+
+func decodeDeleteUserReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.DeleteSecureUserReq)
+	return req, nil
+}
+
+func encodeEmptyResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.EmptyResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) GetCheckTokenKey(ctx context.Context, req *pb.EmptyReq) (*pb.CheckTokenKeyResp, error) {

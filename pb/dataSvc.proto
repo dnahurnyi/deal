@@ -31,10 +31,18 @@ message CreateUserResp {
 
 message GetUserReq {
   ReqHdr req_hdr = 1;
-  string user_id = 2;
 }
 
 message GetUserResp {
+  RespHdr resp_hdr = 1;
+  User user = 2;
+}
+
+message DeleteUserReq {
+  ReqHdr req_hdr = 1;
+}
+
+message DeleteUserResp {
   RespHdr resp_hdr = 1;
   User user = 2;
 }
@@ -54,6 +62,11 @@ service DataService {
   rpc Readiness (Blank) returns (Blank) {
     option (google.api.http) = {
         get: "/readiness"
+    };
+  }
+  rpc DeleteUser (DeleteUserReq) returns (DeleteUserResp) {
+    option (google.api.http) = {
+        delete: "/v1/data/user"
     };
   }
 }

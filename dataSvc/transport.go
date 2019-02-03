@@ -19,6 +19,7 @@ type grpcServer struct {
 	createUser grpctransport.Handler
 	getUser    grpctransport.Handler
 	readiness  grpctransport.Handler
+	deleteUser grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -35,6 +36,15 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 			makeGetUserEndpoint(svc),
 			decodeGetUserReq,
 			encodeGetUserResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
+		deleteUser: grpctransport.NewServer(
+			makeDeleteUserEndpoint(svc),
+			decodeDeleteUserReq,
+			encodeDeleteUserResp,
 			append(options, grpctransport.ServerBefore(
 				grpcutils.ParseCookies(),
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
@@ -71,6 +81,24 @@ func decodeBlankReq(_ context.Context, grpcReq interface{}) (interface{}, error)
 
 func encodeBlankResp(_ context.Context, response interface{}) (interface{}, error) {
 	resp := response.(pb.Blank)
+	return &resp, nil
+}
+
+func (s *grpcServer) DeleteUser(ctx context.Context, req *pb.DeleteUserReq) (*pb.DeleteUserResp, error) {
+	_, resp, err := s.deleteUser.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.DeleteUserResp), nil
+}
+
+func decodeDeleteUserReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.DeleteUserReq)
+	return req, nil
+}
+
+func encodeDeleteUserResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.DeleteUserResp)
 	return &resp, nil
 }
 

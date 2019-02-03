@@ -50,6 +50,31 @@ func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) 
 	return userRes, err
 }
 
+func DeleteUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*pb.User, error) {
+	userIDDB, err := primitive.ObjectIDFromHex(userId)
+	if err != nil {
+		fmt.Println("Error creating object id to get user: ", err)
+		return nil, err
+	}
+	userDB := UserDB{}
+
+	err = table.FindOneAndDelete(ctx, bson.D{{Key: "_id", Value: userIDDB}}).Decode(&userDB)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return &pb.User{}, nil
+		}
+		fmt.Println("Error getting user from mongo: ", err)
+		return nil, err
+	}
+
+	userRes := &pb.User{
+		Name:     userDB.Name,
+		Surname:  userDB.Surname,
+		Username: userDB.Username,
+	}
+	return userRes, err
+}
+
 func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Collection) (*pb.User, error) {
 	userDB := UserDB{}
 	err := table.FindOne(ctx, bson.D{{Key: "username", Value: username}}).Decode(&userDB)

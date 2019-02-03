@@ -40,6 +40,11 @@ message CheckTokenKeyResp {
   int64 e = 4;
 }
 
+message DeleteSecureUserReq {
+  ReqHdr req_hdr = 1;
+  string token_id = 2;
+}
+
 service AuthService {
   rpc Login (LoginReq) returns (LoginResp) {
     option (google.api.http) = {
@@ -58,5 +63,6 @@ service AuthService {
         get: "/v1/auth/key",
     };
   }
+  rpc DeleteUser (DeleteSecureUserReq) returns (EmptyResp) { }
 }
 

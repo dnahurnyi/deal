@@ -23,6 +23,8 @@ type Service interface {
 	Login(ctx context.Context, username, password string) (string, error)
 	SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error)
 	GetKey(ctx context.Context) (string, int64, error)
+	DeleteUser(ctx context.Context, tokenId string) error
+	GetPubKey() *rsa.PublicKey
 }
 
 type service struct {
@@ -43,13 +45,17 @@ func NewService(logger log.Logger, mgc *mongo.Client, dataSvcClient *pb.DataServ
 	collection := mgc.Database("travel").Collection("usersSecure")
 
 	return &service{
-		envType:     "test",
-		mongoClient: mgc,
-		uKey:        uKey,
-		rKey:        rKey,
-		table:       collection,
-		// dataSvcClient: *dataSvcClient,
+		envType:       "test",
+		mongoClient:   mgc,
+		uKey:          uKey,
+		rKey:          rKey,
+		table:         collection,
+		dataSvcClient: *dataSvcClient,
 	}, nil
+}
+
+func (s *service) GetPubKey() *rsa.PublicKey {
+	return s.uKey
 }
 
 func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error) {
@@ -118,4 +124,9 @@ func (s *service) GetKey(ctx context.Context) (string, int64, error) {
 		return "", 0, errors.New(msg)
 	}
 	return base64.StdEncoding.EncodeToString(nBytes), int64(e), nil
+}
+
+func (s *service) DeleteUser(ctx context.Context, tokenId string) error {
+	fmt.Println("[Delete user method]")
+	return DeleteUserByTokenIdDB(ctx, tokenId, s.table)
 }

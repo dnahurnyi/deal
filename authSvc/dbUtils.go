@@ -47,3 +47,14 @@ func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Coll
 	}
 	return userRes, err
 }
+
+func DeleteUserByTokenIdDB(ctx context.Context, tokenID string, table *mongo.Collection) error {
+	userDB := UserDB{}
+
+	err := table.FindOneAndDelete(ctx, bson.D{{Key: "tokenid", Value: tokenID}}).Decode(&userDB)
+	if err != nil {
+		fmt.Println("Error getting user from mongo: ", err)
+		return err
+	}
+	return nil
+}

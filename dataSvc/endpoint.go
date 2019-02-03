@@ -31,7 +31,7 @@ func makeGetUserEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*pb.GetUserReq)
 		tid := req.ReqHdr.Tid
-		user, err := svc.GetUser(ctx, req.GetUserId())
+		user, err := svc.GetUser(ctx)
 
 		return pb.GetUserResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
@@ -44,5 +44,18 @@ func makeReadinessEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		fmt.Println("Readiness called")
 		return pb.Blank{}, nil
+	}
+}
+
+func makeDeleteUserEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.DeleteUserReq)
+		tid := req.ReqHdr.Tid
+		user, err := svc.DeleteUser(ctx)
+
+		return pb.DeleteUserResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+			User:    user,
+		}, err
 	}
 }
