@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/DenysNahurnyi/deal/common/grpc"
+	"github.com/DenysNahurnyi/deal/common/utils"
 	dataSvc "github.com/DenysNahurnyi/deal/dataSvc"
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/log"
@@ -40,8 +41,12 @@ func main() {
 		fmt.Println("Failed to connect to mongo, err: ", err)
 		return
 	}
-
-	svc, err := dataSvc.NewService(logger, client)
+	authSvcClient, err := utils.CreateAuthSvcClient(logger)
+	if err != nil {
+		fmt.Println("Error creating client for authSvc: ", err)
+		return
+	}
+	svc, err := dataSvc.NewService(logger, client, authSvcClient)
 	if err != nil {
 		fmt.Println("Failed to create new data service: ", err)
 		return

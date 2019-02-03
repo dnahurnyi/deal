@@ -43,13 +43,12 @@ func makeGetCheckTokenKeyEndpoint(svc Service) endpoint.Endpoint {
 	return func(ctx context.Context, request interface{}) (interface{}, error) {
 		req := request.(*pb.EmptyReq)
 		tid := req.ReqHdr.Tid
-		nBytes, nBaseInt64, e, err := svc.GetKey(ctx)
+		nBytes, e, err := svc.GetKey(ctx)
 
 		return pb.CheckTokenKeyResp{
-			RespHdr:     &pb.RespHdr{Tid: tid, ReqTid: tid},
-			NBase64:     nBytes,
-			IsBaseInt64: nBaseInt64,
-			E:           e,
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+			NBase64: nBytes,
+			E:       e,
 		}, err
 	}
 }

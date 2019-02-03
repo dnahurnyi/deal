@@ -11,7 +11,7 @@ import (
 
 const (
 	MySecret  = "secretWordDorJWTSign"
-	userIdKey = "userId"
+	userIdKey = "userID"
 )
 
 type TokenData struct {

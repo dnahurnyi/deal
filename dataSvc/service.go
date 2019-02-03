@@ -8,10 +8,11 @@ package dataSvc
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 
-	"github.com/DenysNahurnyi/deal/common/utils"
+	grpcutils "github.com/DenysNahurnyi/deal/common/grpc"
 	"github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/log"
 	"github.com/mongodb/mongo-go-driver/mongo"
@@ -20,32 +21,42 @@ import (
 type Service interface {
 	CreateUser(ctx context.Context, user *pb.User) (string, error)
 	GetUser(ctx context.Context, userId string) (*pb.User, error)
+	GetPubKey() *rsa.PublicKey
 }
 
 type service struct {
-	envType     string
-	mongoClient *mongo.Client
-	table       *mongo.Collection
+	envType       string
+	mongoClient   *mongo.Client
+	table         *mongo.Collection
+	authSvcClient pb.AuthServiceClient
+	uKey          *rsa.PublicKey
 }
 
-func NewService(logger log.Logger, mgc *mongo.Client) (Service, error) {
+func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServiceClient) (Service, error) {
 	table := mgc.Database("travel").Collection("users")
-	authSvc := utils.CreateAuthSvcClient(logger)
-	fmt.Println("authSvc: ", authSvc)
-	fmt.Println("Now I will call auth")
 	ctx := context.Background()
-	loginResp, err := authSvc.Login(ctx, &pb.LoginReq{
+	authSvcClientValue := *authSvcClient
+	getPubKeyResp, err := authSvcClientValue.GetCheckTokenKey(ctx, &pb.EmptyReq{
 		ReqHdr: &pb.ReqHdr{
-			Tid: "Transaction ID",
+			Tid: "call to get pub key",
 		},
-		Username: "pisatel",
-		Password: "123467",
 	})
-	fmt.Println("loginResp, err: ", loginResp, err)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get pub key from authSvc, err:", err)
+		return nil, err
+	}
+	uKey, err := grpcutils.CreatePubKey(getPubKeyResp.GetNBase64(), int(getPubKeyResp.GetE()))
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to create pub key for authSvc tokens, err:", err)
+		return nil, err
+	}
+	fmt.Println("Data svc uKey: ", uKey)
 	return &service{
-		envType:     "test",
-		mongoClient: mgc,
-		table:       table,
+		envType:       "test",
+		mongoClient:   mgc,
+		table:         table,
+		authSvcClient: authSvcClientValue,
+		uKey:          uKey,
 	}, nil
 }
 
@@ -69,7 +80,16 @@ func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, err
 }
 
 func (s *service) GetUser(ctx context.Context, userID string) (*pb.User, error) {
-	// userId, err := grpcutils.GetUserIDFromJWT(ctx)
+	userId, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return nil, err
+	}
+	fmt.Println("User id from JWT is: ", userId)
 
-	return GetUserByIdDB(ctx, userID, s.table)
+	return GetUserByIdDB(ctx, userId, s.table)
+}
+
+func (s *service) GetPubKey() *rsa.PublicKey {
+	return s.uKey
 }

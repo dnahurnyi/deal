@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: authsvc
-        image: n826/travel:authsvc-v9
+        image: n826/travel:authsvc-v12
         ports:
         - containerPort: 8012
           name: grpc-port

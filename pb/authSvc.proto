@@ -37,7 +37,6 @@ message SignUpResp {
 message CheckTokenKeyResp {
   RespHdr resp_hdr = 1;
   string n_base64 = 2; // bytes
-  bool is_base_int64 = 3;
   int64 e = 4;
 }
 

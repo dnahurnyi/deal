@@ -38,7 +38,7 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 			append(options, grpctransport.ServerBefore(
 				grpcutils.ParseCookies(),
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
-				grpcutils.VerifyToken()))...,
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
 		readiness: grpctransport.NewServer(
 			makeReadinessEndpoint(svc),

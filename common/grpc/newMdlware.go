@@ -2,8 +2,11 @@ package grpcutils
 
 import (
 	"context"
+	"crypto/rsa"
+	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
@@ -29,7 +32,7 @@ type ErrorContext struct {
 // VerifyToken: not exposed middleware function to verify jwt token from context
 // In case of success returns another context fulfilled by tenant specific info, for now it is just tenant_id
 // In case of error returns ErrorContext with one property error that we check through type assertation in each function
-func VerifyToken() grpc.ServerRequestFunc {
+func VerifyToken(uKey *rsa.PublicKey) grpc.ServerRequestFunc {
 	return func(ctx context.Context, md metadata.MD) context.Context {
 
 		// Pull input info from context
@@ -41,7 +44,7 @@ func VerifyToken() grpc.ServerRequestFunc {
 		}
 		request := tmpMeta.Request
 		tokenString := request.Headers[GRPCAUTHORIZATIONHEADER]
-		userID, err := checkToken(tokenString)
+		userID, err := checkToken(uKey, tokenString)
 		fmt.Println("IN VerifyToken: ", userID, err)
 
 		var tokenRes = &pb.Token{
@@ -58,55 +61,26 @@ func VerifyToken() grpc.ServerRequestFunc {
 	}
 }
 
-func checkToken(tokenStr string) (string, error) {
+func checkToken(uKey interface{}, tokenStr string) (string, error) {
 	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+		if _, ok := token.Method.(*jwt.SigningMethodRSA); !ok {
 			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
 		}
 
-		// hmacSampleSecret is a []byte containing your secret, e.g. []byte("my_secret_key")
-		return []byte(MySecret), nil
+		return uKey, nil
 	})
-
 	if err != nil {
 		fmt.Println("Error parsing token:", err)
 		return "", err
 	}
-
-	// Error handling
-	// if err != nil && err.Error() == "Token is expired" {
-	// 	var errCtx = ErrorContext{
-	// 		Error: ${replaceMeBack}err.NewError(nil, "Token is expired"),
-	// 	}
-	// 	return context.WithValue(ctx, ERRCTX, errCtx)
-	// }
-	// if err != nil {
-	// 	var errCtx = ErrorContext{
-	// 		Error: err,
-	// 	}
-	// 	return context.WithValue(ctx, ERRCTX, errCtx)
-	// }
-	// claims, ok := token.Claims.(jwt.MapClaims)
-	// if !ok || !token.Valid {
-	// 	var errCtx = ErrorContext{
-	// 		Error: ${replaceMeBack}err.NewError(nil, "Invalid token"),
-	// 	}
-	// 	return context.WithValue(ctx, ERRCTX, errCtx)
-	// }
-	// if err = claims.Valid(); err != nil {
-	// 	var errCtx = ErrorContext{
-	// 		Error: ${replaceMeBack}err.NewError(nil, "Token payload is not valid"),
-	// 	}
-	// 	return context.WithValue(ctx, ERRCTX, errCtx)
-	// }
-
 	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-		if userId, ok := claims["userId"]; ok {
-			return userId.(string), nil
+		if userID, ok := claims["userID"]; ok {
+			return userID.(string), err
 		}
+		fmt.Println("Token is invalid")
 	}
-	return "", err
+	return "", errors.New("Token is inappropriate")
 }
 
 // This is middleware for adding cookies from request to context
@@ -223,4 +197,16 @@ func getTokenKeyFromContext(ctx context.Context, key string) (string, error) {
 		return "", errors.New(fmt.Sprintf("Failed to get [%s] from token", key))
 	}
 	return value, nil
+}
+
+func CreatePubKey(nBytesBase64 string, e int) (*rsa.PublicKey, error) {
+	nBytes, err := base64.StdEncoding.DecodeString(nBytesBase64)
+	if err != nil {
+		return nil, errors.New("Failed to create pub key, n bytes are invalid")
+	}
+	n := big.NewInt(0).SetBytes(nBytes)
+	return &rsa.PublicKey{
+		N: n,
+		E: e,
+	}, nil
 }
