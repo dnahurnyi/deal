@@ -59,3 +59,16 @@ func makeDeleteUserEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeUpdateUserEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.UpdateUserReq)
+		tid := req.ReqHdr.Tid
+		user, err := svc.UpdateUser(ctx, req.GetUser())
+
+		return pb.UpdateUserResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+			User:    user,
+		}, err
+	}
+}

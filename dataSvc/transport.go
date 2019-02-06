@@ -20,6 +20,7 @@ type grpcServer struct {
 	getUser    grpctransport.Handler
 	readiness  grpctransport.Handler
 	deleteUser grpctransport.Handler
+	updateUser grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -50,11 +51,15 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
-		readiness: grpctransport.NewServer(
-			makeReadinessEndpoint(svc),
-			decodeBlankReq,
-			encodeBlankResp,
-			options...),
+		updateUser: grpctransport.NewServer(
+			makeUpdateUserEndpoint(svc),
+			decodeUpdateUserReq,
+			encodeUpdateUserResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
 		// getTenantMgr: grpctransport.NewServer(
 		// 	makeGetTenantEndpoint(svc),
 		// 	decodeGetMgrEndpointReq,
@@ -66,21 +71,21 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 	}
 }
 
-func (s *grpcServer) Readiness(ctx context.Context, req *pb.Blank) (*pb.Blank, error) {
-	_, resp, err := s.readiness.ServeGRPC(ctx, req)
+func (s *grpcServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (*pb.UpdateUserResp, error) {
+	_, resp, err := s.updateUser.ServeGRPC(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	return resp.(*pb.Blank), nil
+	return resp.(*pb.UpdateUserResp), nil
 }
 
-func decodeBlankReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
-	req := grpcReq.(*pb.Blank)
+func decodeUpdateUserReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.UpdateUserReq)
 	return req, nil
 }
 
-func encodeBlankResp(_ context.Context, response interface{}) (interface{}, error) {
-	resp := response.(pb.Blank)
+func encodeUpdateUserResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.UpdateUserResp)
 	return &resp, nil
 }
 

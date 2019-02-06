@@ -22,6 +22,7 @@ type Service interface {
 	CreateUser(ctx context.Context, user *pb.User) (string, error)
 	GetUser(ctx context.Context) (*pb.User, error)
 	DeleteUser(ctx context.Context) (*pb.User, error)
+	UpdateUser(ctx context.Context, user *pb.User) (*pb.User, error)
 	GetPubKey() *rsa.PublicKey
 }
 
@@ -86,7 +87,6 @@ func (s *service) GetUser(ctx context.Context) (*pb.User, error) {
 		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
 		return nil, err
 	}
-	fmt.Println("User id from JWT is: ", userID)
 
 	return GetUserByIdDB(ctx, userID, s.table)
 }
@@ -118,4 +118,32 @@ func (s *service) DeleteUser(ctx context.Context) (*pb.User, error) {
 
 func (s *service) GetPubKey() *rsa.PublicKey {
 	return s.uKey
+}
+
+func (s *service) UpdateUser(ctx context.Context, user *pb.User) (*pb.User, error) {
+	userID, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return nil, err
+	}
+
+	userExist, err := GetUserByIdDB(ctx, userID, s.table)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user, err: ", err)
+		return nil, err
+	}
+	if len(userExist.GetUsername()) == 0 {
+		fmt.Println("[WARNING] user doesn't exist")
+		return nil, errors.New("User doesn't exist")
+	}
+	err = UpdateUserDB(ctx, userID, &UserDB{
+		Name:     user.GetName(),
+		Surname:  user.GetSurname(),
+		Username: user.GetUsername(),
+	}, s.table)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to update user in data service, err: ", err)
+		return nil, err
+	}
+	return user, nil
 }

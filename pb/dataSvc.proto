@@ -29,6 +29,16 @@ message CreateUserResp {
   string user_id = 2;
 }
 
+message UpdateUserReq {
+  ReqHdr req_hdr = 1;
+  User user = 2;
+}
+
+message UpdateUserResp {
+  RespHdr resp_hdr = 1;
+  User user = 2;
+}
+
 message GetUserReq {
   ReqHdr req_hdr = 1;
 }
@@ -59,14 +69,15 @@ service DataService {
         get: "/v1/data/user"
     };
   }
-  rpc Readiness (Blank) returns (Blank) {
-    option (google.api.http) = {
-        get: "/readiness"
-    };
-  }
   rpc DeleteUser (DeleteUserReq) returns (DeleteUserResp) {
     option (google.api.http) = {
         delete: "/v1/data/user"
+    };
+  }
+  rpc UpdateUser (UpdateUserReq) returns (UpdateUserResp) {
+    option (google.api.http) = {
+        patch: "/v1/data/user",
+        body: "*"
     };
   }
 }

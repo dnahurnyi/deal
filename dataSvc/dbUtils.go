@@ -17,6 +17,20 @@ type UserDB struct {
 	Id       primitive.ObjectID `bson:"_id,omitempty"`
 }
 
+func (u *UserDB) toMongoFormat() bson.D {
+	es := []bson.E{}
+	if len(u.Name) > 0 {
+		es = append(es, bson.E{Key: "name", Value: u.Name})
+	}
+	if len(u.Surname) > 0 {
+		es = append(es, bson.E{Key: "surname", Value: u.Surname})
+	}
+	if len(u.Username) > 0 {
+		es = append(es, bson.E{Key: "username", Value: u.Username})
+	}
+	return es
+}
+
 func CreateUserDB(ctx context.Context, user *UserDB, table *mongo.Collection) (string, error) {
 	res, err := table.InsertOne(ctx, *user)
 	if err != nil {
@@ -92,4 +106,21 @@ func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Coll
 		Username: userDB.Username,
 	}
 	return userRes, err
+}
+
+// UpdateUserDB updates user in DB using userID to find it and user to update data
+func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo.Collection) error {
+	userIDDB, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		fmt.Println("Error creating object id to get user: ", err)
+		return err
+	}
+	_, err = table.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: userIDDB}},
+		bson.D{{"$set", user.toMongoFormat()}},
+	)
+	if err != nil {
+		fmt.Println("Error updating user in mongo: ", err)
+	}
+	return err
 }
