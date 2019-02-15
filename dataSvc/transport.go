@@ -16,11 +16,12 @@ import (
 )
 
 type grpcServer struct {
-	createUser grpctransport.Handler
-	getUser    grpctransport.Handler
-	readiness  grpctransport.Handler
-	deleteUser grpctransport.Handler
-	updateUser grpctransport.Handler
+	createUser     grpctransport.Handler
+	getUser        grpctransport.Handler
+	readiness      grpctransport.Handler
+	deleteUser     grpctransport.Handler
+	updateUser     grpctransport.Handler
+	existenceCheck grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -60,6 +61,11 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
+		existenceCheck: grpctransport.NewServer(
+			makeExistenceCheckEndpoint(svc),
+			decodeEmptyReq,
+			encodeEmptyResp,
+			options...),
 		// getTenantMgr: grpctransport.NewServer(
 		// 	makeGetTenantEndpoint(svc),
 		// 	decodeGetMgrEndpointReq,
@@ -69,6 +75,24 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 		// 		grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 		// 		grpcutils.VerifyToken(svc.GetDBIf(), logger)))...),
 	}
+}
+
+func (s *grpcServer) ExistenceCheck(ctx context.Context, req *pb.EmptyReq) (*pb.EmptyResp, error) {
+	_, resp, err := s.existenceCheck.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.EmptyResp), nil
+}
+
+func decodeEmptyReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.EmptyReq)
+	return req, nil
+}
+
+func encodeEmptyResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.EmptyResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) UpdateUser(ctx context.Context, req *pb.UpdateUserReq) (*pb.UpdateUserResp, error) {

@@ -80,5 +80,10 @@ service DataService {
         body: "*"
     };
   }
+  rpc ExistenceCheck (EmptyReq) returns (EmptyResp) {
+    option (google.api.http) = {
+        get: "/*",
+    };
+  }
 }
 
