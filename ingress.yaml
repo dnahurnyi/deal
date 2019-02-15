@@ -1,0 +1,16 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: app-ingress
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /v1/auth/*
+        backend:
+          serviceName: authsvc-service
+          servicePort: 8013
+      - path: /v1/data/*
+        backend:
+          serviceName: datasvc-service
+          servicePort: 8011

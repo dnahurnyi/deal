@@ -64,5 +64,10 @@ service AuthService {
     };
   }
   rpc DeleteUser (DeleteSecureUserReq) returns (EmptyResp) { }
+  rpc ExistenceCheck (EmptyReq) returns (EmptyResp) {
+    option (google.api.http) = {
+        get: "/*",
+    };
+  }
 }
 

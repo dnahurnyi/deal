@@ -8,6 +8,7 @@ package authSvc
 
 import (
 	"context"
+	"fmt"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/go-kit/kit/endpoint"
@@ -62,5 +63,12 @@ func makeDeleteSecureUserReqEndpoint(svc Service) endpoint.Endpoint {
 		return pb.EmptyResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
 		}, err
+	}
+}
+
+func makeExistenceCheckEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		fmt.Println("<I exist!>")
+		return pb.EmptyResp{}, nil
 	}
 }

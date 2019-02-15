@@ -19,6 +19,7 @@ type grpcServer struct {
 	signUp           grpctransport.Handler
 	deleteUser       grpctransport.Handler
 	getCheckTokenKey grpctransport.Handler
+	existenceCheck   grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
@@ -46,7 +47,20 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.AuthServiceServer {
 			decodeDeleteUserReq,
 			encodeEmptyResp,
 			options...),
+		existenceCheck: grpctransport.NewServer(
+			makeExistenceCheckEndpoint(svc),
+			decodeEmptyReq,
+			encodeEmptyResp,
+			options...),
 	}
+}
+
+func (s *grpcServer) ExistenceCheck(ctx context.Context, req *pb.EmptyReq) (*pb.EmptyResp, error) {
+	_, resp, err := s.existenceCheck.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.EmptyResp), nil
 }
 
 func (s *grpcServer) DeleteUser(ctx context.Context, req *pb.DeleteSecureUserReq) (*pb.EmptyResp, error) {
