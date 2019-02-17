@@ -78,3 +78,16 @@ func makeExistenceCheckEndpoint(svc Service) endpoint.Endpoint {
 		return pb.EmptyResp{}, nil
 	}
 }
+
+func makeCreateDealDocumentEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.CreateDealDocumentReq)
+		tid := req.ReqHdr.Tid
+		dealDocumentID, err := svc.CreateDealDocument(ctx, req.GetDealDocument())
+
+		return pb.CreateDealDocumentResp{
+			RespHdr:        &pb.RespHdr{Tid: tid, ReqTid: tid},
+			DealDocumentId: dealDocumentID,
+		}, err
+	}
+}

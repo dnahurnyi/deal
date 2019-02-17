@@ -6,6 +6,8 @@
 # ---------------------------------------------------------------------------
 SHELL = /bin/zsh
 
+include build/common.mk
+
 .PHONY = module unit-test module-install clean
 
 TOPDIR := $(shell git rev-parse --show-toplevel)

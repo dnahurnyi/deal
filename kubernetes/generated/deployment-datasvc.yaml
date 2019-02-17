@@ -1,0 +1,31 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1beta2 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: datasvc-deployment
+  labels:
+    app: datasvc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: datasvc
+  template:
+    metadata:
+      labels:
+        app: datasvc
+    spec:
+      containers:
+      - name: datasvc
+        image: n826/travel:datasvc-v27
+        ports:
+        - containerPort: 8010
+          name: grpc-port
+        - containerPort: 8011
+          name: rest-port
+        imagePullPolicy: Always

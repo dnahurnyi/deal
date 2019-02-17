@@ -6,7 +6,10 @@
 // ---------------------------------------------------------------------------
 syntax = "proto3";
 
+import "google/protobuf/timestamp.proto";
+
 package pb;
+
 
 message Blank {}
 
@@ -49,6 +52,39 @@ message Error {
   string user_message = 3; //User facing message. It goes hand-in-hand with the code above
   string dev_details = 4; //Details for the developer. This will be a stack of errors
   string url = 5; //URL giving more details about the error
+}
+
+enum SideType {
+  RED = 0;
+  BLUE = 1;
+  JUDGE = 2;
+}
+
+message Participant {
+  string id = 1;
+  bool accepted = 2;
+}
+
+message Side {
+  int64 members = 1;
+  Side side = 2;
+  repeated Participant participants = 3;
+}
+
+message Pact {
+  string id = 1;
+  string content = 2;
+  repeated Side red = 3;
+  repeated Side blue = 4;
+  google.protobuf.Timestamp timeout = 5;
+  int64 version = 6;
+}
+
+message DealDocument {
+  string id = 1;
+  map<int64,  Pact> pacts = 2; // Version -> Pact
+  repeated Side judge = 3;
+  int64 final_version = 4;
 }
 
 enum serviceId {

@@ -23,19 +23,22 @@ type Service interface {
 	GetUser(ctx context.Context) (*pb.User, error)
 	DeleteUser(ctx context.Context) (*pb.User, error)
 	UpdateUser(ctx context.Context, user *pb.User) (*pb.User, error)
+	CreateDealDocument(ctx context.Context, dealDocument *pb.Pact) (string, error)
 	GetPubKey() *rsa.PublicKey
 }
 
 type service struct {
 	envType       string
 	mongoClient   *mongo.Client
-	table         *mongo.Collection
+	userTable     *mongo.Collection
+	dealDocTable  *mongo.Collection
 	authSvcClient pb.AuthServiceClient
 	uKey          *rsa.PublicKey
 }
 
 func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServiceClient) (Service, error) {
-	table := mgc.Database("travel").Collection("users")
+	userTable := mgc.Database("travel").Collection("users")
+	dealDocTable := mgc.Database("travel").Collection("dealDocuments")
 	ctx := context.Background()
 	authSvcClientValue := *authSvcClient
 	getPubKeyResp, err := authSvcClientValue.GetCheckTokenKey(ctx, &pb.EmptyReq{
@@ -56,14 +59,15 @@ func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServ
 	return &service{
 		envType:       "test",
 		mongoClient:   mgc,
-		table:         table,
+		userTable:     userTable,
+		dealDocTable:  dealDocTable,
 		authSvcClient: authSvcClientValue,
 		uKey:          uKey,
 	}, nil
 }
 
 func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, error) {
-	userGet, err := GetUserByUsernameDB(ctx, userReq.GetUsername(), s.table)
+	userGet, err := GetUserByUsernameDB(ctx, userReq.GetUsername(), s.userTable)
 	if err != nil {
 		fmt.Println("Failed to get user from DB")
 		return "", err
@@ -77,7 +81,7 @@ func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, err
 		Name:     userReq.GetName(),
 		Surname:  userReq.GetSurname(),
 		Username: userReq.GetUsername(),
-	}, s.table)
+	}, s.userTable)
 	return userID, err
 }
 
@@ -88,7 +92,7 @@ func (s *service) GetUser(ctx context.Context) (*pb.User, error) {
 		return nil, err
 	}
 
-	return GetUserByIdDB(ctx, userID, s.table)
+	return GetUserByIdDB(ctx, userID, s.userTable)
 }
 
 func (s *service) DeleteUser(ctx context.Context) (*pb.User, error) {
@@ -98,7 +102,7 @@ func (s *service) DeleteUser(ctx context.Context) (*pb.User, error) {
 		return nil, err
 	}
 
-	user, err := DeleteUserByIdDB(ctx, userID, s.table)
+	user, err := DeleteUserByIdDB(ctx, userID, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to delete user, err: ", err)
 		return nil, err
@@ -127,7 +131,7 @@ func (s *service) UpdateUser(ctx context.Context, user *pb.User) (*pb.User, erro
 		return nil, err
 	}
 
-	userExist, err := GetUserByIdDB(ctx, userID, s.table)
+	userExist, err := GetUserByIdDB(ctx, userID, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get user, err: ", err)
 		return nil, err
@@ -140,10 +144,60 @@ func (s *service) UpdateUser(ctx context.Context, user *pb.User) (*pb.User, erro
 		Name:     user.GetName(),
 		Surname:  user.GetSurname(),
 		Username: user.GetUsername(),
-	}, s.table)
+	}, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to update user in data service, err: ", err)
 		return nil, err
 	}
 	return user, nil
+}
+
+func (s *service) CreateDealDocument(ctx context.Context, dealDocument *pb.Pact) (string, error) {
+	userID, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return "", err
+	}
+	dealDocumentDB, err := createInitDealDocument(userID, dealDocument.GetContent(), dealDocument.GetTimeout().String())
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
+		return "", err
+	}
+	return CreateDealDocumentDB(ctx, dealDocumentDB, s.dealDocTable)
+}
+
+func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB, error) {
+	// Checks
+	if len(redUserID) == 0 {
+		fmt.Println("[LOG] Invalid input, userID is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, userID is invalid: " + redUserID)
+	}
+	if len(content) == 0 {
+		fmt.Println("[LOG] Invalid input, content is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, content is invalid: " + content)
+	}
+	if len(timeout) == 0 {
+		fmt.Println("[LOG] Invalid input, timeout is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, timeout is invalid: " + timeout)
+	}
+
+	redSide := SideDB{
+		Type: pb.SideType_RED,
+		Participants: []ParticipantDB{
+			ParticipantDB{
+				ID:       redUserID,
+				Accepted: true,
+			},
+		},
+	}
+	firstPact := PactDB{
+		Content: content,
+		Red:     redSide,
+		Version: "initial(#1)",
+		Timeout: timeout,
+	}
+	return DealDocumentDB{
+		Pacts:        []PactDB{firstPact},
+		FinalVersion: firstPact.Version,
+	}, nil
 }

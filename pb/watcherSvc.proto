@@ -1,0 +1,33 @@
+//
+// Copyright 2019
+//
+// @author: Denys Nahurnyi
+// @email:  dnahurnyi@gmail.com
+// ---------------------------------------------------------------------------
+syntax = "proto3";
+
+package pb;
+
+import "google/api/annotations.proto";
+import "pb/commonStr.proto";
+
+message HoldAndWatchReq {
+  ReqHdr req_hdr = 1;
+  Pact pact = 2;
+}
+
+message HoldAndWatchResp {
+  RespHdr resp_hdr = 1;
+  string status = 2;
+}
+
+
+service WatcherService {
+  rpc HoldAndWatch (HoldAndWatchReq) returns (HoldAndWatchResp) {
+    option (google.api.http) = {
+        post: "/v1/watch/pact",
+        body: "*"
+    };
+  }
+}
+

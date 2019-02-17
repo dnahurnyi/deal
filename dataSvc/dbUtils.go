@@ -17,6 +17,35 @@ type UserDB struct {
 	Id       primitive.ObjectID `bson:"_id,omitempty"`
 }
 
+// ParticipantDB is an object of participant that stores in the DB
+type ParticipantDB struct {
+	ID       string
+	Accepted bool
+}
+
+// SideDB is an object of side that stores in the DB
+type SideDB struct {
+	Type         pb.SideType
+	Participants []ParticipantDB
+}
+
+// PactDB is an object of pact that stores in the DB
+type PactDB struct {
+	Content string
+	Red     SideDB
+	Blue    SideDB
+	Timeout string
+	Version string
+}
+
+// DealDocumentDB is an object of dealDocument(set of pacts) that stores in the DB
+type DealDocumentDB struct {
+	ID           primitive.ObjectID `bson:"_id,omitempty"`
+	Pacts        []PactDB
+	FinalVersion string
+	Judge        SideDB
+}
+
 func (u *UserDB) toMongoFormat() bson.D {
 	es := []bson.E{}
 	if len(u.Name) > 0 {
@@ -123,4 +152,13 @@ func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo
 		fmt.Println("Error updating user in mongo: ", err)
 	}
 	return err
+}
+
+// CreateDealDocumentDB create deal dcoument in the DB
+func CreateDealDocumentDB(ctx context.Context, dealDocument DealDocumentDB, table *mongo.Collection) (string, error) {
+	res, err := table.InsertOne(ctx, dealDocument)
+	if err != nil {
+		fmt.Println("Error creating deal document in mongo: ", err)
+	}
+	return res.InsertedID.(primitive.ObjectID).Hex(), err
 }

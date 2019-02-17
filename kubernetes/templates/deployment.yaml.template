@@ -1,0 +1,31 @@
+#
+# Copyright 2019
+#
+# @author: Denys Nahurnyi
+# @email:  dnahurnyi@gmail.com
+# ---------------------------------------------------------------------------
+apiVersion: apps/v1beta2 # for versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: {SERVICENAME}-deployment
+  labels:
+    app: {SERVICENAME}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {SERVICENAME}
+  template:
+    metadata:
+      labels:
+        app: {SERVICENAME}
+    spec:
+      containers:
+      - name: {SERVICENAME}
+        image: n826/travel:{SERVICENAME}-v{IMAGEVERSION}
+        ports:
+        - containerPort: {GRPCPORT}
+          name: grpc-port
+        - containerPort: {HTTPPORT}
+          name: rest-port
+        imagePullPolicy: Always
