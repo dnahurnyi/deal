@@ -17,6 +17,7 @@ message User {
   string username = 3;
   string password = 4;
   string id = 5;
+  repeated string deal_docs = 6;
 }
 
 message CreateUserReq {

@@ -163,7 +163,24 @@ func (s *service) CreateDealDocument(ctx context.Context, dealDocument *pb.Pact)
 		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
 		return "", err
 	}
-	return CreateDealDocumentDB(ctx, dealDocumentDB, s.dealDocTable)
+	dealDocID, err := CreateDealDocumentDB(ctx, dealDocumentDB, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
+		return "", err
+	}
+	user, err := GetUserByIdDB(ctx, userID, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user from DB, err: ", err)
+		return "", err
+	}
+	err = UpdateUserDB(ctx, userID, &UserDB{
+		DealDocs: append(user.GetDealDocs(), dealDocID),
+	}, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to add deal document to users, err: ", err)
+		return "", err
+	}
+	return dealDocID, err
 }
 
 func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB, error) {

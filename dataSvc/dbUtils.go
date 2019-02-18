@@ -11,39 +11,41 @@ import (
 )
 
 type UserDB struct {
-	Name     string
-	Surname  string
-	Username string
-	Id       primitive.ObjectID `bson:"_id,omitempty"`
+	Name      string             `bson:"name,omitempty"`
+	Surname   string             `bson:"surname,omitempty"`
+	Username  string             `bson:"username,omitempty"`
+	Id        primitive.ObjectID `bson:"_id,omitempty"`
+	DealDocs  []string           `bson:"deal_docs,omitempty"`
+	Offerings []string           `bson:"offerings,omitempty"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
 type ParticipantDB struct {
-	ID       string
-	Accepted bool
+	ID       string `bson:"id,omitempty"`
+	Accepted bool   `bson:"accepted,omitempty"`
 }
 
 // SideDB is an object of side that stores in the DB
 type SideDB struct {
-	Type         pb.SideType
-	Participants []ParticipantDB
+	Type         pb.SideType     `bson:"type,omitempty"`
+	Participants []ParticipantDB `bson:"participants,omitempty"`
 }
 
 // PactDB is an object of pact that stores in the DB
 type PactDB struct {
-	Content string
-	Red     SideDB
-	Blue    SideDB
-	Timeout string
-	Version string
+	Content string `bson:"content,omitempty"`
+	Red     SideDB `bson:"red,omitempty"`
+	Blue    SideDB `bson:"blue,omitempty"`
+	Timeout string `bson:"timeout,omitempty"`
+	Version string `bson:"version,omitempty"`
 }
 
 // DealDocumentDB is an object of dealDocument(set of pacts) that stores in the DB
 type DealDocumentDB struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty"`
-	Pacts        []PactDB
-	FinalVersion string
-	Judge        SideDB
+	Pacts        []PactDB           `bson:"pacts,omitempty"`
+	FinalVersion string             `bson:"final_version,omitempty"`
+	Judge        SideDB             `bson:"judge,omitempty"`
 }
 
 func (u *UserDB) toMongoFormat() bson.D {
@@ -56,6 +58,9 @@ func (u *UserDB) toMongoFormat() bson.D {
 	}
 	if len(u.Username) > 0 {
 		es = append(es, bson.E{Key: "username", Value: u.Username})
+	}
+	if len(u.DealDocs) > 0 {
+		es = append(es, bson.E{Key: "deal_docs", Value: u.DealDocs})
 	}
 	return es
 }
@@ -89,6 +94,7 @@ func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) 
 		Name:     userDB.Name,
 		Surname:  userDB.Surname,
 		Username: userDB.Username,
+		DealDocs: userDB.DealDocs,
 	}
 	return userRes, err
 }
@@ -114,6 +120,7 @@ func DeleteUserByIdDB(ctx context.Context, userId string, table *mongo.Collectio
 		Name:     userDB.Name,
 		Surname:  userDB.Surname,
 		Username: userDB.Username,
+		DealDocs: userDB.DealDocs,
 	}
 	return userRes, err
 }
@@ -133,6 +140,7 @@ func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Coll
 		Name:     userDB.Name,
 		Surname:  userDB.Surname,
 		Username: userDB.Username,
+		DealDocs: userDB.DealDocs,
 	}
 	return userRes, err
 }
