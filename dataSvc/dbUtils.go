@@ -62,6 +62,9 @@ func (u *UserDB) toMongoFormat() bson.D {
 	if len(u.DealDocs) > 0 {
 		es = append(es, bson.E{Key: "deal_docs", Value: u.DealDocs})
 	}
+	if len(u.Offerings) > 0 {
+		es = append(es, bson.E{Key: "offerings", Value: u.Offerings})
+	}
 	return es
 }
 
@@ -91,12 +94,85 @@ func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) 
 	}
 
 	userRes := &pb.User{
-		Name:     userDB.Name,
-		Surname:  userDB.Surname,
-		Username: userDB.Username,
-		DealDocs: userDB.DealDocs,
+		Name:      userDB.Name,
+		Surname:   userDB.Surname,
+		Username:  userDB.Username,
+		DealDocs:  userDB.DealDocs,
+		Offerings: userDB.Offerings,
 	}
 	return userRes, err
+}
+
+func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collection) (*pb.DealDocument, error) {
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
+	if err != nil {
+		fmt.Println("Error creating object id to get user: ", err)
+		return nil, err
+	}
+	dealDocDB := DealDocumentDB{}
+
+	err = table.FindOne(ctx, bson.D{{Key: "_id", Value: dealDocIDDB}}).Decode(&dealDocDB)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return nil, nil
+		}
+		fmt.Println("Error getting deal document from mongo: ", err)
+		return nil, err
+	}
+
+	dealDocumentRes := &pb.DealDocument{
+		Id:           dealDocDB.ID.Hex(),
+		FinalVersion: dealDocDB.FinalVersion,
+	}
+	if len(dealDocDB.Judge.Participants) != 0 {
+		participants := []*pb.Participant{}
+		for _, judgeParticipant := range dealDocDB.Judge.Participants {
+			partID := judgeParticipant.ID
+			partAcceptance := judgeParticipant.Accepted
+			participants = append(participants, &pb.Participant{
+				Id:       partID,
+				Accepted: partAcceptance,
+			})
+		}
+		dealDocumentRes.Judge = &pb.Side{
+			Members:      int64(len(participants)),
+			Side:         pb.SideType_JUDGE,
+			Participants: participants,
+		}
+	}
+
+	if len(dealDocDB.Pacts) != 0 {
+		dealDocumentRes.Pacts = make(map[string]*pb.Pact)
+		for _, pact := range dealDocDB.Pacts {
+			pactF := &pb.Pact{
+				Content: pact.Content,
+				Red: &pb.Side{
+					Members: int64(len(pact.Red.Participants)),
+					Side:    pb.SideType_RED,
+				},
+				Blue: &pb.Side{
+					Members: int64(len(pact.Red.Participants)),
+					Side:    pb.SideType_BLUE,
+				},
+				Timeout: pact.Timeout,
+				Version: pact.Version,
+			}
+			for _, redParticipant := range pact.Red.Participants {
+				pactF.Red.Participants = append(pactF.Red.Participants, &pb.Participant{
+					Id:       redParticipant.ID,
+					Accepted: redParticipant.Accepted,
+				})
+			}
+			for _, blueParticipant := range pact.Blue.Participants {
+				pactF.Blue.Participants = append(pactF.Blue.Participants, &pb.Participant{
+					Id:       blueParticipant.ID,
+					Accepted: blueParticipant.Accepted,
+				})
+			}
+			dealDocumentRes.Pacts[pact.Version] = pactF
+		}
+	}
+	return dealDocumentRes, err
 }
 
 func DeleteUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*pb.User, error) {
@@ -117,32 +193,34 @@ func DeleteUserByIdDB(ctx context.Context, userId string, table *mongo.Collectio
 	}
 
 	userRes := &pb.User{
-		Name:     userDB.Name,
-		Surname:  userDB.Surname,
-		Username: userDB.Username,
-		DealDocs: userDB.DealDocs,
+		Name:      userDB.Name,
+		Surname:   userDB.Surname,
+		Username:  userDB.Username,
+		DealDocs:  userDB.DealDocs,
+		Offerings: userDB.Offerings,
 	}
 	return userRes, err
 }
 
-func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Collection) (*pb.User, error) {
+func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Collection) (*pb.User, string, error) {
 	userDB := UserDB{}
 	err := table.FindOne(ctx, bson.D{{Key: "username", Value: username}}).Decode(&userDB)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
-			return &pb.User{}, nil
+			return &pb.User{}, "", nil
 		}
 		fmt.Println("Error getting user from mongo: ", err)
-		return nil, err
+		return nil, "", err
 	}
 
 	userRes := &pb.User{
-		Name:     userDB.Name,
-		Surname:  userDB.Surname,
-		Username: userDB.Username,
-		DealDocs: userDB.DealDocs,
+		Name:      userDB.Name,
+		Surname:   userDB.Surname,
+		Username:  userDB.Username,
+		DealDocs:  userDB.DealDocs,
+		Offerings: userDB.Offerings,
 	}
-	return userRes, err
+	return userRes, userDB.Id.Hex(), err
 }
 
 // UpdateUserDB updates user in DB using userID to find it and user to update data

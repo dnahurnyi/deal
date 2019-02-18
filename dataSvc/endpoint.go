@@ -91,3 +91,15 @@ func makeCreateDealDocumentEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeOfferDealDocumentEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.OfferDealDocumentReq)
+		tid := req.ReqHdr.Tid
+		err := svc.OfferDealDocument(ctx, req.GetDealDocId(), req.GetUsername())
+
+		return pb.OfferDealDocumentResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}

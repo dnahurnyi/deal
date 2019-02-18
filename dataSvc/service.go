@@ -24,6 +24,7 @@ type Service interface {
 	DeleteUser(ctx context.Context) (*pb.User, error)
 	UpdateUser(ctx context.Context, user *pb.User) (*pb.User, error)
 	CreateDealDocument(ctx context.Context, dealDocument *pb.Pact) (string, error)
+	OfferDealDocument(ctx context.Context, dealDocId, username string) error
 	GetPubKey() *rsa.PublicKey
 }
 
@@ -67,7 +68,7 @@ func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServ
 }
 
 func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, error) {
-	userGet, err := GetUserByUsernameDB(ctx, userReq.GetUsername(), s.userTable)
+	userGet, _, err := GetUserByUsernameDB(ctx, userReq.GetUsername(), s.userTable)
 	if err != nil {
 		fmt.Println("Failed to get user from DB")
 		return "", err
@@ -158,7 +159,7 @@ func (s *service) CreateDealDocument(ctx context.Context, dealDocument *pb.Pact)
 		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
 		return "", err
 	}
-	dealDocumentDB, err := createInitDealDocument(userID, dealDocument.GetContent(), dealDocument.GetTimeout().String())
+	dealDocumentDB, err := createInitDealDocument(userID, dealDocument.GetContent(), dealDocument.GetTimeout())
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
 		return "", err
@@ -217,4 +218,35 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 		Pacts:        []PactDB{firstPact},
 		FinalVersion: firstPact.Version,
 	}, nil
+}
+
+// OfferDealDocument offer another user deal document
+func (s *service) OfferDealDocument(ctx context.Context, dealDocID, username string) error {
+	_, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return err
+	}
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document from DB, err: ", err)
+		return err
+	}
+	if dealDoc == nil {
+		fmt.Println("[LOG]:", "Deal document doesn't exist")
+		return errors.New("Deal document doesn't exist")
+	}
+
+	offeredUser, offeredUserID, err := GetUserByUsernameDB(ctx, username, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user from DB, err: ", err)
+		return err
+	}
+	if len(offeredUserID) == 0 {
+		fmt.Println("[WARNING] user doesn't exist")
+		return errors.New("User doesn't exist")
+	}
+	return UpdateUserDB(ctx, offeredUserID, &UserDB{
+		Offerings: append(offeredUser.GetOfferings(), dealDocID),
+	}, s.userTable)
 }

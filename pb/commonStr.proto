@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 syntax = "proto3";
 
-import "google/protobuf/timestamp.proto";
+// import "google/protobuf/timestamp.proto";
 
 package pb;
 
@@ -67,24 +67,23 @@ message Participant {
 
 message Side {
   int64 members = 1;
-  Side side = 2;
+  SideType side = 2;
   repeated Participant participants = 3;
 }
 
 message Pact {
-  string id = 1;
   string content = 2;
-  repeated Side red = 3;
-  repeated Side blue = 4;
-  google.protobuf.Timestamp timeout = 5;
-  int64 version = 6;
+  Side red = 3;
+  Side blue = 4;
+  string timeout = 5;
+  string version = 6;
 }
 
 message DealDocument {
   string id = 1;
-  map<int64,  Pact> pacts = 2; // Version -> Pact
-  repeated Side judge = 3;
-  int64 final_version = 4;
+  map<string,  Pact> pacts = 2; // Version -> Pact
+  Side judge = 3;
+  string final_version = 4;
 }
 
 enum serviceId {
