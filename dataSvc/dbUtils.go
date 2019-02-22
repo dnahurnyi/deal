@@ -16,8 +16,9 @@ type UserDB struct {
 	Surname   string             `bson:"surname,omitempty"`
 	Username  string             `bson:"username,omitempty"`
 	Id        primitive.ObjectID `bson:"_id,omitempty"`
-	DealDocs  []string           `bson:"deal_docs,omitempty"`
-	Offerings []string           `bson:"offerings,omitempty"`
+	DealDocs  []string           `bson:"deal_docs"`
+	Offerings []string           `bson:"offerings"`
+	Accepted  []string           `bson:"offerings"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
@@ -91,20 +92,29 @@ func CreateUserDB(ctx context.Context, user *UserDB, table *mongo.Collection) (s
 	return res.InsertedID.(primitive.ObjectID).Hex(), err
 }
 
-func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*pb.User, error) {
+func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*UserDB, error) {
 	userIDDB, err := primitive.ObjectIDFromHex(userId)
 	if err != nil {
 		fmt.Println("Error creating object id to get user: ", err)
 		return nil, err
 	}
-	userDB := UserDB{}
+	userDB := &UserDB{}
 
-	err = table.FindOne(ctx, bson.D{{Key: "_id", Value: userIDDB}}).Decode(&userDB)
+	err = table.FindOne(ctx, bson.D{{Key: "_id", Value: userIDDB}}).Decode(userDB)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
-			return &pb.User{}, nil
+			return nil, nil
 		}
 		fmt.Println("Error getting user from mongo: ", err)
+		return nil, err
+	}
+
+	return userDB, nil
+}
+
+func GetUserByIdDBConvert(ctx context.Context, userID string, table *mongo.Collection) (*pb.User, error) {
+	userDB, err := GetUserByIdDB(ctx, userID, table)
+	if err != nil || userDB == nil {
 		return nil, err
 	}
 
@@ -263,25 +273,26 @@ func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo
 }
 
 // AcceptDealDocDB finds deal doc `dealDocID` in DB, and updates `Accepted` status to true of user `userID`, user should be on `side` side
-func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, table *mongo.Collection) error {
+func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, dealDocTable *mongo.Collection) error {
 	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
 	if err != nil {
 		fmt.Println("Error creating object id to get deal document: ", err)
 		return err
 	}
-	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, table)
+
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, dealDocTable)
 	if err != nil {
 		fmt.Println("Failed to get deal document: ", err)
 		return err
 	}
-	dealDoc, err = acceptDealForSide(dealDoc, side, userID)
+	dealDocAccepted, err := acceptDealForSide(dealDoc, side, userID)
 	if err != nil {
 		fmt.Println("Failed to accept deal: ", err)
 		return err
 	}
-	_, err = table.UpdateOne(ctx,
+	_, err = dealDocTable.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: dealDocIDDB}},
-		bson.D{{"$set", dealDoc.toMongoFormat()}},
+		bson.D{{"$set", dealDocAccepted.toMongoFormat()}},
 	)
 	if err != nil {
 		fmt.Println("Error updating deal document in mongo: ", err)

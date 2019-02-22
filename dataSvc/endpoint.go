@@ -116,3 +116,15 @@ func makeGetDealDocumentEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeAcceptDealDocumentEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.AcceptDealDocumentReq)
+		tid := req.ReqHdr.Tid
+		err := svc.AcceptDealDocument(ctx, req.GetDealDocId(), req.GetSideType())
+
+		return pb.AcceptDealDocumentResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}

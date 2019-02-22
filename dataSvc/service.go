@@ -26,6 +26,7 @@ type Service interface {
 	CreateDealDocument(ctx context.Context, dealDocument *pb.Pact) (string, error)
 	GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error)
 	OfferDealDocument(ctx context.Context, dealDocId, username string) error
+	AcceptDealDocument(ctx context.Context, dealDocId string, side pb.SideType) error
 	GetPubKey() *rsa.PublicKey
 }
 
@@ -94,7 +95,7 @@ func (s *service) GetUser(ctx context.Context) (*pb.User, error) {
 		return nil, err
 	}
 
-	return GetUserByIdDB(ctx, userID, s.userTable)
+	return GetUserByIdDBConvert(ctx, userID, s.userTable)
 }
 
 func (s *service) DeleteUser(ctx context.Context) (*pb.User, error) {
@@ -133,7 +134,7 @@ func (s *service) UpdateUser(ctx context.Context, user *pb.User) (*pb.User, erro
 		return nil, err
 	}
 
-	userExist, err := GetUserByIdDB(ctx, userID, s.userTable)
+	userExist, err := GetUserByIdDBConvert(ctx, userID, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get user, err: ", err)
 		return nil, err
@@ -170,7 +171,7 @@ func (s *service) CreateDealDocument(ctx context.Context, dealDocument *pb.Pact)
 		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
 		return "", err
 	}
-	user, err := GetUserByIdDB(ctx, userID, s.userTable)
+	user, err := GetUserByIdDBConvert(ctx, userID, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get user from DB, err: ", err)
 		return "", err
@@ -262,7 +263,6 @@ func (s *service) OfferDealDocument(ctx context.Context, dealDocID, username str
 }
 
 func (s *service) GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error) {
-	fmt.Println("Get deal document: ", dealDocumentID)
 	_, err := grpcutils.GetUserIDFromJWT(ctx)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
@@ -274,4 +274,30 @@ func (s *service) GetDealDocument(ctx context.Context, dealDocumentID string) (*
 		return nil, err
 	}
 	return dealDoc, err
+}
+
+// AcceptDealDocument accepts `dealID` deal for `userID` user
+func (s *service) AcceptDealDocument(ctx context.Context, dealDocID string, side pb.SideType) error {
+	userID, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return err
+	}
+	// Mark document as accepted
+	// Get doc to make sure it exists
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document from DB, err: ", err)
+		return err
+	}
+	if dealDoc == nil {
+		fmt.Println("[LOG]:", "Deal document doesn't exist")
+		return errors.New("Deal document doesn't exist")
+	}
+
+	fmt.Println("Side accepted user: ", side)
+	// User will be updated by watcher triger
+	return AcceptDealDocDB(ctx, dealDocID, userID, side, s.dealDocTable)
+	// Update user: add dealDoc to accepted and delete from offered
+	// Triger watcher
 }
