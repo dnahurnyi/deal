@@ -23,6 +23,7 @@ type grpcServer struct {
 	updateUser         grpctransport.Handler
 	existenceCheck     grpctransport.Handler
 	createDealDocument grpctransport.Handler
+	getDealDocument    grpctransport.Handler
 	offerDealDocument  grpctransport.Handler
 }
 
@@ -86,7 +87,34 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
+		getDealDocument: grpctransport.NewServer(
+			makeGetDealDocumentEndpoint(svc),
+			decodeGetDealDocumentReq,
+			encodeGetDealDocumentResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
 	}
+}
+
+func (s *grpcServer) GetDealDocument(ctx context.Context, req *pb.GetDealDocumentReq) (*pb.GetDealDocumentResp, error) {
+	_, resp, err := s.getDealDocument.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.GetDealDocumentResp), nil
+}
+
+func decodeGetDealDocumentReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.GetDealDocumentReq)
+	return req, nil
+}
+
+func encodeGetDealDocumentResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.GetDealDocumentResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) OfferDealDocument(ctx context.Context, req *pb.OfferDealDocumentReq) (*pb.OfferDealDocumentResp, error) {

@@ -69,6 +69,16 @@ message CreateDealDocumentResp {
   string deal_document_id = 2;
 }
 
+message GetDealDocumentReq {
+  ReqHdr req_hdr = 1;
+  string deal_document_id = 2;
+}
+
+message GetDealDocumentResp {
+  RespHdr resp_hdr = 1;
+  DealDocument deal_document = 2;
+}
+
 message OfferDealDocumentReq {
   ReqHdr req_hdr = 1;
   string deal_doc_id = 2;
@@ -111,6 +121,11 @@ service DataService {
     option (google.api.http) = {
         post: "/v1/data/dealDoc",
         body: "*"
+    };
+  }
+  rpc GetDealDocument (GetDealDocumentReq) returns (GetDealDocumentResp) {
+    option (google.api.http) = {
+        get: "/v1/data/dealDoc"
     };
   }
   rpc OfferDealDocument (OfferDealDocumentReq) returns (OfferDealDocumentResp) {

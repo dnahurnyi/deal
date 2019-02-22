@@ -2,6 +2,7 @@ package dataSvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
@@ -22,12 +23,12 @@ type UserDB struct {
 // ParticipantDB is an object of participant that stores in the DB
 type ParticipantDB struct {
 	ID       string `bson:"id,omitempty"`
-	Accepted bool   `bson:"accepted,omitempty"`
+	Accepted bool   `bson:"accepted"`
 }
 
 // SideDB is an object of side that stores in the DB
 type SideDB struct {
-	Type         pb.SideType     `bson:"type,omitempty"`
+	Type         pb.SideType     `bson:"type"`
 	Participants []ParticipantDB `bson:"participants,omitempty"`
 }
 
@@ -68,6 +69,20 @@ func (u *UserDB) toMongoFormat() bson.D {
 	return es
 }
 
+func (dd *DealDocumentDB) toMongoFormat() bson.D {
+	es := []bson.E{}
+	if len(dd.Pacts) > 0 {
+		es = append(es, bson.E{Key: "pacts", Value: dd.Pacts})
+	}
+	if len(dd.FinalVersion) > 0 {
+		es = append(es, bson.E{Key: "final_version", Value: dd.FinalVersion})
+	}
+	if dd.Judge.Type == pb.SideType_JUDGE {
+		es = append(es, bson.E{Key: "judge", Value: dd.Judge})
+	}
+	return es
+}
+
 func CreateUserDB(ctx context.Context, user *UserDB, table *mongo.Collection) (string, error) {
 	res, err := table.InsertOne(ctx, *user)
 	if err != nil {
@@ -102,21 +117,28 @@ func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) 
 	}
 	return userRes, err
 }
-
-func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collection) (*pb.DealDocument, error) {
+func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collection) (*DealDocumentDB, error) {
 	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
 	if err != nil {
 		fmt.Println("Error creating object id to get user: ", err)
 		return nil, err
 	}
-	dealDocDB := DealDocumentDB{}
+	dealDocDB := &DealDocumentDB{}
 
-	err = table.FindOne(ctx, bson.D{{Key: "_id", Value: dealDocIDDB}}).Decode(&dealDocDB)
+	err = table.FindOne(ctx, bson.D{{Key: "_id", Value: dealDocIDDB}}).Decode(dealDocDB)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
 			return nil, nil
 		}
 		fmt.Println("Error getting deal document from mongo: ", err)
+		return nil, err
+	}
+	return dealDocDB, err
+}
+
+func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo.Collection) (*pb.DealDocument, error) {
+	dealDocDB, err := GetDealDocByIdDB(ctx, dealDocID, table)
+	if err != nil {
 		return nil, err
 	}
 
@@ -151,7 +173,7 @@ func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collec
 					Side:    pb.SideType_RED,
 				},
 				Blue: &pb.Side{
-					Members: int64(len(pact.Red.Participants)),
+					Members: int64(len(pact.Blue.Participants)),
 					Side:    pb.SideType_BLUE,
 				},
 				Timeout: pact.Timeout,
@@ -238,6 +260,179 @@ func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo
 		fmt.Println("Error updating user in mongo: ", err)
 	}
 	return err
+}
+
+// AcceptDealDocDB finds deal doc `dealDocID` in DB, and updates `Accepted` status to true of user `userID`, user should be on `side` side
+func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, table *mongo.Collection) error {
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
+	if err != nil {
+		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, table)
+	if err != nil {
+		fmt.Println("Failed to get deal document: ", err)
+		return err
+	}
+	dealDoc, err = acceptDealForSide(dealDoc, side, userID)
+	if err != nil {
+		fmt.Println("Failed to accept deal: ", err)
+		return err
+	}
+	_, err = table.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDocIDDB}},
+		bson.D{{"$set", dealDoc.toMongoFormat()}},
+	)
+	if err != nil {
+		fmt.Println("Error updating deal document in mongo: ", err)
+	}
+	return err
+}
+
+// OfferDealDocDB finds deal doc `dealDocID` in DB, and add user `userID` to the `side` side
+func OfferDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, table *mongo.Collection) error {
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
+	if err != nil {
+		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, table)
+	if err != nil {
+		fmt.Println("Failed to get deal document: ", err)
+		return err
+	}
+	fmt.Println("Before: ", dealDoc.Pacts[0])
+	dealDoc, err = offerDealForSide(dealDoc, side, userID)
+	fmt.Println("After: ", dealDoc.Pacts[0])
+	if err != nil {
+		fmt.Println("Failed to offer the deal: ", err)
+		return err
+	}
+	_, err = table.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDocIDDB}},
+		bson.D{{"$set", dealDoc.toMongoFormat()}},
+	)
+	if err != nil {
+		fmt.Println("Error updating deal document in mongo: ", err)
+	}
+	return err
+}
+
+func offerDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) (*DealDocumentDB, error) {
+	var err error
+	if side != pb.SideType_JUDGE {
+		// Find pact
+		var pact *PactDB
+		for i, pactTmp := range dealDoc.Pacts {
+			if pactTmp.Version == dealDoc.FinalVersion {
+				pact = &dealDoc.Pacts[i]
+			}
+		}
+		if pact == nil {
+			err = errors.New("Deal document is invalid, can't find needed pact")
+			fmt.Println("[ERROR]: ", err.Error())
+			return nil, err
+		}
+		//Find side in pact
+		var pactSide *SideDB
+		switch side {
+		case pb.SideType_RED:
+			pactSide = &pact.Red
+		case pb.SideType_BLUE:
+			pactSide = &pact.Blue
+		}
+		if pactSide == nil {
+			err = fmt.Errorf("Invalid side %q", side)
+			err = fmt.Errorf("Failed to find user %q on %q side", userID, side)
+			fmt.Println("[ERROR]: ", err.Error())
+			return nil, err
+		}
+		//Create new participant `userID` on `pactSide`
+		fmt.Println("before dealDoc: ", dealDoc)
+		pactSide.Participants = append(pactSide.Participants, ParticipantDB{
+			ID:       userID,
+			Accepted: false,
+		})
+		fmt.Println("after dealDoc: ", dealDoc)
+		return dealDoc, nil
+	} else {
+		// For judge
+		//Create judge on judge side
+		dealDoc.Judge.Participants = append(dealDoc.Judge.Participants, ParticipantDB{
+			ID:       userID,
+			Accepted: false,
+		})
+		return dealDoc, nil
+	}
+}
+
+func acceptDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) (*DealDocumentDB, error) {
+	var err error
+	if side != pb.SideType_JUDGE {
+		// Find pact
+		var pact *PactDB
+		for _, pactTmp := range dealDoc.Pacts {
+			if pactTmp.Version == dealDoc.FinalVersion {
+				pact = &pactTmp
+			}
+		}
+		if pact == nil {
+			err = errors.New("Deal document is invalid, can't find needed pact")
+			fmt.Println("[ERROR]: ", err.Error())
+			return nil, err
+		}
+		//Find side in pact
+		var pactSide *SideDB
+		switch side {
+		case pb.SideType_RED:
+			pactSide = &pact.Red
+		case pb.SideType_BLUE:
+			pactSide = &pact.Blue
+		}
+		if pactSide == nil {
+			err = fmt.Errorf("Invalid side %q", side)
+			err = fmt.Errorf("Failed to find user %q on %q side", userID, side)
+			fmt.Println("[ERROR]: ", err.Error())
+			return nil, err
+		}
+		//Find participant in side and accept
+		for i, participant := range pactSide.Participants {
+			if participant.ID == userID {
+				if participant.Accepted == true {
+					err = fmt.Errorf("Failed to accept, user %q already accepted this deal", userID)
+					fmt.Println("[ERROR]: ", err.Error())
+					return nil, err
+				}
+				pactSide.Participants[i].Accepted = true
+				return dealDoc, nil
+			}
+		}
+		err = fmt.Errorf("Failed to find user %q on %q side", userID, side)
+		fmt.Println("[ERROR]: ", err.Error())
+		return nil, err
+	} else {
+		// For judge
+		//Find judge in judge side and accept
+		if len(dealDoc.Judge.Participants) == 0 {
+			err = fmt.Errorf("No judge side exist in this deal document")
+			fmt.Println("[ERROR]: ", err.Error())
+			return nil, err
+		}
+		for i, judge := range dealDoc.Judge.Participants {
+			if judge.ID == userID {
+				if judge.Accepted == true {
+					err = fmt.Errorf("Failed to accept, judge %q already accepted this deal", userID)
+					fmt.Println("[ERROR]: ", err.Error())
+					return nil, err
+				}
+				dealDoc.Judge.Participants[i].Accepted = true
+				return dealDoc, nil
+			}
+		}
+		err = fmt.Errorf("Failed to judge %q on %q side", userID, side)
+		fmt.Println("[ERROR]: ", err.Error())
+		return nil, err
+	}
 }
 
 // CreateDealDocumentDB create deal dcoument in the DB

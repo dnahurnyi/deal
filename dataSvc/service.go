@@ -24,6 +24,7 @@ type Service interface {
 	DeleteUser(ctx context.Context) (*pb.User, error)
 	UpdateUser(ctx context.Context, user *pb.User) (*pb.User, error)
 	CreateDealDocument(ctx context.Context, dealDocument *pb.Pact) (string, error)
+	GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error)
 	OfferDealDocument(ctx context.Context, dealDocId, username string) error
 	GetPubKey() *rsa.PublicKey
 }
@@ -211,6 +212,10 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 	firstPact := PactDB{
 		Content: content,
 		Red:     redSide,
+		Blue: SideDB{
+			Type:         pb.SideType_BLUE,
+			Participants: []ParticipantDB{},
+		},
 		Version: "initial(#1)",
 		Timeout: timeout,
 	}
@@ -246,7 +251,27 @@ func (s *service) OfferDealDocument(ctx context.Context, dealDocID, username str
 		fmt.Println("[WARNING] user doesn't exist")
 		return errors.New("User doesn't exist")
 	}
-	return UpdateUserDB(ctx, offeredUserID, &UserDB{
+	err = UpdateUserDB(ctx, offeredUserID, &UserDB{
 		Offerings: append(offeredUser.GetOfferings(), dealDocID),
 	}, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to user in DB, err: ", err)
+		return err
+	}
+	return OfferDealDocDB(ctx, dealDocID, offeredUserID, pb.SideType_BLUE, s.dealDocTable)
+}
+
+func (s *service) GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error) {
+	fmt.Println("Get deal document: ", dealDocumentID)
+	_, err := grpcutils.GetUserIDFromJWT(ctx)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+		return nil, err
+	}
+	dealDoc, err := GetDealDocByIdDBConvert(ctx, dealDocumentID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document, err: ", err)
+		return nil, err
+	}
+	return dealDoc, err
 }
