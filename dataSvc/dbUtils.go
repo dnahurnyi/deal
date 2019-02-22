@@ -18,7 +18,7 @@ type UserDB struct {
 	Id        primitive.ObjectID `bson:"_id,omitempty"`
 	DealDocs  []string           `bson:"deal_docs"`
 	Offerings []string           `bson:"offerings"`
-	Accepted  []string           `bson:"offerings"`
+	Accepted  []string           `bson:"accepted"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
@@ -84,8 +84,8 @@ func (dd *DealDocumentDB) toMongoFormat() bson.D {
 	return es
 }
 
-func CreateUserDB(ctx context.Context, user *UserDB, table *mongo.Collection) (string, error) {
-	res, err := table.InsertOne(ctx, *user)
+func CreateUserDB(ctx context.Context, user UserDB, table *mongo.Collection) (string, error) {
+	res, err := table.InsertOne(ctx, user)
 	if err != nil {
 		fmt.Println("Error creating user in mongo: ", err)
 	}

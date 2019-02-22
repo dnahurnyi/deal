@@ -79,8 +79,7 @@ func (s *service) CreateUser(ctx context.Context, userReq *pb.User) (string, err
 		fmt.Println("[WARNING] user already exist")
 		return "", errors.New("User already exist")
 	}
-
-	userID, err := CreateUserDB(ctx, &UserDB{
+	userID, err := CreateUserDB(ctx, UserDB{
 		Name:     userReq.GetName(),
 		Surname:  userReq.GetSurname(),
 		Username: userReq.GetUsername(),
