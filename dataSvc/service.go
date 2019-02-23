@@ -294,9 +294,7 @@ func (s *service) AcceptDealDocument(ctx context.Context, dealDocID string, side
 		return errors.New("Deal document doesn't exist")
 	}
 
-	fmt.Println("Side accepted user: ", side)
-	// User will be updated by watcher triger
-	return AcceptDealDocDB(ctx, dealDocID, userID, side, s.dealDocTable)
+	return AcceptDealDocDB(ctx, dealDocID, userID, side, s.dealDocTable, s.userTable)
 	// Update user: add dealDoc to accepted and delete from offered
 	// Triger watcher
 }

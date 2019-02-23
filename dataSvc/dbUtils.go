@@ -273,10 +273,28 @@ func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo
 }
 
 // AcceptDealDocDB finds deal doc `dealDocID` in DB, and updates `Accepted` status to true of user `userID`, user should be on `side` side
-func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, dealDocTable *mongo.Collection) error {
+func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideType, dealDocTable, userTable *mongo.Collection) error {
 	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
 	if err != nil {
 		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+
+	user, err := GetUserByIdDB(ctx, userID, userTable)
+	if err != nil || user == nil {
+		err = fmt.Errorf("Failed to get user by %q id", userID)
+		fmt.Println("[ERROR]: ", err.Error())
+		return err
+	}
+	userAccepted, err := userAcceptDeal(user, dealDocID)
+	fmt.Println("userAccepted: ", userAccepted)
+	if err != nil {
+		fmt.Println("[ERROR]: ", "Failed to accept deal for user "+userID, err.Error())
+		return err
+	}
+	err = UpdateUserDB(ctx, userID, userAccepted, userTable)
+	if err != nil {
+		fmt.Println("[ERROR]: ", "Failed to update user "+userID, err.Error())
 		return err
 	}
 
@@ -354,7 +372,6 @@ func offerDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) 
 		}
 		if pactSide == nil {
 			err = fmt.Errorf("Invalid side %q", side)
-			err = fmt.Errorf("Failed to find user %q on %q side", userID, side)
 			fmt.Println("[ERROR]: ", err.Error())
 			return nil, err
 		}
@@ -453,4 +470,25 @@ func CreateDealDocumentDB(ctx context.Context, dealDocument DealDocumentDB, tabl
 		fmt.Println("Error creating deal document in mongo: ", err)
 	}
 	return res.InsertedID.(primitive.ObjectID).Hex(), err
+}
+
+func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
+	var err error
+	if user == nil {
+		err = fmt.Errorf("Invalid user in input")
+		return nil, err
+	}
+	initOfferLen := len(user.Offerings)
+	for i, offerID := range user.Offerings {
+		if offerID == dealID {
+			user.Offerings = append(user.Offerings[:i], user.Offerings[i+1:]...)
+			break
+		}
+	}
+	if initOfferLen == len(user.Offerings) {
+		err = fmt.Errorf("Failed to find offer %q in user offers", dealID)
+		return nil, err
+	}
+	user.Accepted = append(user.Accepted, dealID)
+	return user, err
 }
