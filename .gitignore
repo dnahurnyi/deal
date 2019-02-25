@@ -3,3 +3,9 @@
 *.md
 *.pem
 *.xml
+
+kubernetes/generated*
+
+ingress*
+helm
+my-nginx

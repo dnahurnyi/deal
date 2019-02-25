@@ -15,7 +15,7 @@ SERVICENAME  := datasvc
 REPO  := n826/travel
 TAG       := v1
 DEPLOYMENT_YAML_TEMPL = $(TOPDIR)/kubernetes/templates/deployment.yaml.template
-SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/configs/minikube/svc.yaml.template
+# SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/configs/minikube/svc.yaml.template
 
 HTTPPORT := 8011
 # NODEHTTPPORT := 30093
