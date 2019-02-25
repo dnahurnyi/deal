@@ -41,9 +41,11 @@ const (
 	CHANGEMGRSERVICEPORTNAME     = "grpc-port"
 	TENANTMGRSERVICE             = "tenantmgr"
 	DATA_SERVICE                 = "datasvc"
+	WATCHER_SERVICE              = "watchersvc"
 	AUTH_SERVICE                 = "authsvc"
 	TENANTMGRSERVICEPORTNAME     = "grpc-port"
 	DATA_SERVICE_PORT_NAME       = "grpc-port"
+	WATCHER_SERVICE_PORT_NAME    = "grpc-port"
 	AUTH_SERVICE_PORT_NAME       = "grpc-port"
 	GRAPHDBSERVICE               = "graphdbmgr"
 	GRAPHDBSERVICEPORTNAME       = "grpc-port"
@@ -165,9 +167,9 @@ func SliceDifference(slice1 []string, slice2 []string) []string {
 	return newslice
 }
 
-//Create a connection to tenantMgr
+//CreateAuthSvcClient creates a connection to authSvc
 func CreateAuthSvcClient(logger log.Logger) (*pb.AuthServiceClient, error) {
-	//Discover the policyReader endpoint
+	//Discover the authSvc endpoint
 	conn, err := grpcutils.CreateGrpcConn(AUTH_SERVICE, AUTH_SERVICE_PORT_NAME, grpcutils.DialConfig{
 		UseRetry:    true,
 		MaxRetries:  GRPCMAXRETRIES,
@@ -181,9 +183,9 @@ func CreateAuthSvcClient(logger log.Logger) (*pb.AuthServiceClient, error) {
 	return &authSvcClient, nil
 }
 
-//Create a connection to tenantMgr
+//CreateDataSvcClient creates a connection to dataSvc
 func CreateDataSvcClient(logger log.Logger) (*pb.DataServiceClient, error) {
-	//Discover the policyReader endpoint
+	//Discover the dataSvc endpoint
 	conn, err := grpcutils.CreateGrpcConn(DATA_SERVICE, DATA_SERVICE_PORT_NAME, grpcutils.DialConfig{
 		UseRetry:    true,
 		MaxRetries:  GRPCMAXRETRIES,
@@ -195,6 +197,22 @@ func CreateDataSvcClient(logger log.Logger) (*pb.DataServiceClient, error) {
 	}
 	dataSvcClient := pb.NewDataServiceClient(conn)
 	return &dataSvcClient, nil
+}
+
+//CreateWatcherSvcClient creates a connection to watcherSvc
+func CreateWatcherSvcClient(logger log.Logger) (*pb.WatcherServiceClient, error) {
+	//Discover the watcherSvc endpoint
+	conn, err := grpcutils.CreateGrpcConn(WATCHER_SERVICE, WATCHER_SERVICE_PORT_NAME, grpcutils.DialConfig{
+		UseRetry:    true,
+		MaxRetries:  GRPCMAXRETRIES,
+		DialOptions: grpcutils.OptsGrpcGw(),
+	}, logger)
+	if err != nil {
+		fmt.Println("grpc Dial failed: ", err)
+		return nil, err
+	}
+	watcherSvcClient := pb.NewWatcherServiceClient(conn)
+	return &watcherSvcClient, nil
 }
 
 // //Remove duplicate elements in the object list and generate unique alert tags.

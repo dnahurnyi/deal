@@ -14,6 +14,7 @@ import "pb/commonStr.proto";
 message HoldAndWatchReq {
   ReqHdr req_hdr = 1;
   Pact pact = 2;
+  string deal_id = 3;
 }
 
 message HoldAndWatchResp {
@@ -23,11 +24,6 @@ message HoldAndWatchResp {
 
 
 service WatcherService {
-  rpc HoldAndWatch (HoldAndWatchReq) returns (HoldAndWatchResp) {
-    option (google.api.http) = {
-        post: "/v1/watch/pact",
-        body: "*"
-    };
-  }
+  rpc HoldAndWatch (HoldAndWatchReq) returns (HoldAndWatchResp) {}
 }
 
