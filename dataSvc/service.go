@@ -31,15 +31,16 @@ type Service interface {
 }
 
 type service struct {
-	envType       string
-	mongoClient   *mongo.Client
-	userTable     *mongo.Collection
-	dealDocTable  *mongo.Collection
-	authSvcClient pb.AuthServiceClient
-	uKey          *rsa.PublicKey
+	envType          string
+	mongoClient      *mongo.Client
+	userTable        *mongo.Collection
+	dealDocTable     *mongo.Collection
+	authSvcClient    pb.AuthServiceClient
+	watcherSvcClient pb.WatcherServiceClient
+	uKey             *rsa.PublicKey
 }
 
-func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServiceClient) (Service, error) {
+func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServiceClient, watcherSvcClient *pb.WatcherServiceClient) (Service, error) {
 	userTable := mgc.Database("travel").Collection("users")
 	dealDocTable := mgc.Database("travel").Collection("dealDocuments")
 	ctx := context.Background()
@@ -59,13 +60,16 @@ func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServ
 		return nil, err
 	}
 	fmt.Println("Data svc uKey: ", uKey)
+	watcherSvcClientValue := *watcherSvcClient
+
 	return &service{
-		envType:       "test",
-		mongoClient:   mgc,
-		userTable:     userTable,
-		dealDocTable:  dealDocTable,
-		authSvcClient: authSvcClientValue,
-		uKey:          uKey,
+		envType:          "test",
+		mongoClient:      mgc,
+		userTable:        userTable,
+		dealDocTable:     dealDocTable,
+		authSvcClient:    authSvcClientValue,
+		watcherSvcClient: watcherSvcClientValue,
+		uKey:             uKey,
 	}, nil
 }
 
@@ -222,6 +226,7 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 	return DealDocumentDB{
 		Pacts:        []PactDB{firstPact},
 		FinalVersion: firstPact.Version,
+		Status:       "INITIAL DEAL STAGE",
 	}, nil
 }
 
@@ -294,7 +299,41 @@ func (s *service) AcceptDealDocument(ctx context.Context, dealDocID string, side
 		return errors.New("Deal document doesn't exist")
 	}
 
-	return AcceptDealDocDB(ctx, dealDocID, userID, side, s.dealDocTable, s.userTable)
-	// Update user: add dealDoc to accepted and delete from offered
-	// Triger watcher
+	err = AcceptDealDocDB(ctx, dealDocID, userID, side, s.dealDocTable, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to accept deal: ", err)
+		return err
+	}
+	// Whethere it's accept deal action, maybe everyone accepted deal so we could run watchDeal on watcherSvc
+	isDealAccepted, err := CheckToWatchDeal(ctx, dealDocID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to check wheter deal accepted by every participant: ", err)
+		return err
+	}
+	if isDealAccepted {
+		// Update deal status
+		err = UpdateDealStatus(ctx, dealDocID, "ACCEPTED", s.dealDocTable)
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to deal status: ", err)
+			return err
+		}
+		// Send deal to watcher
+		_, err := s.watcherSvcClient.HoldAndWatch(ctx, &pb.HoldAndWatchReq{
+			ReqHdr: &pb.ReqHdr{
+				Tid: "1234",
+			},
+			DealId: dealDocID,
+		})
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to watch new deal: ", err)
+			return err
+		}
+		// Update user deal status
+		err = TellUserDealStarted(ctx, *dealDoc, s.userTable)
+		if err != nil {
+			fmt.Printf("[LOG]: Failed to update user statuses to [PARTICIPATING] in deal %s: %s\n", dealDoc.ID, err)
+			return err
+		}
+	}
+	return err
 }

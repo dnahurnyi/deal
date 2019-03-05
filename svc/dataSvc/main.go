@@ -46,7 +46,12 @@ func main() {
 		fmt.Println("Error creating client for authSvc: ", err)
 		return
 	}
-	svc, err := dataSvc.NewService(logger, client, authSvcClient)
+	watcherSvcClient, err := utils.CreateWatcherSvcClient(logger)
+	if err != nil {
+		fmt.Println("Error creating client for watcherSvc: ", err)
+		return
+	}
+	svc, err := dataSvc.NewService(logger, client, authSvcClient, watcherSvcClient)
 	if err != nil {
 		fmt.Println("Failed to create new data service: ", err)
 		return
