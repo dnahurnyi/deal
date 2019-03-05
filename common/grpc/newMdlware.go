@@ -191,7 +191,10 @@ func getTokenKeyFromContext(ctx context.Context, key string) (string, error) {
 	if errCtx, ok := ctx.Value(ERRCTX).(ErrorContext); ok {
 		return "", errCtx.Error
 	}
-	meta := ctx.Value(META).(pb.MetaInfo)
+	meta, ok := ctx.Value(META).(pb.MetaInfo)
+	if !ok {
+		return "", errors.New("Token is invalid")
+	}
 	value, ok := meta.Token.Content[key]
 	if !ok {
 		return "", errors.New(fmt.Sprintf("Failed to get [%s] from token", key))

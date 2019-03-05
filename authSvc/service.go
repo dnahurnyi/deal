@@ -17,6 +17,8 @@ import (
 
 	"github.com/go-kit/kit/log"
 	"github.com/mongodb/mongo-go-driver/mongo"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Service interface {
@@ -95,17 +97,19 @@ func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, passwor
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (string, error) {
-	fmt.Println("[In create token method]")
 	userGet, err := GetUserByUsernameDB(ctx, username, s.table)
 	if err != nil {
-		fmt.Println("Failed to get user from DB")
-		return "", err
+		return "", status.Errorf(codes.Internal, "Failed to get user from DB: %q", err)
 	}
 	if len(userGet.GetId()) == 0 {
-		return "", errors.New("User does not exist")
+		return "", status.Errorf(codes.InvalidArgument, "User does not exist")
 	}
 
-	return createToken(userGet.GetId(), s.rKey)
+	jwtToken, err := createToken(userGet.GetId(), s.rKey)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "Error with token")
+	}
+	return jwtToken, nil
 }
 
 func (s *service) GetKey(ctx context.Context) (string, int64, error) {
@@ -113,20 +117,17 @@ func (s *service) GetKey(ctx context.Context) (string, int64, error) {
 	uKey := s.uKey
 	if uKey == nil {
 		msg := "Public key is not present in Auth service"
-		fmt.Println("[LOG]:", msg)
 		return "", 0, errors.New(msg)
 	}
 	e := uKey.E
 	nBytes := uKey.N.Bytes()
 	if len(nBytes) == 0 {
 		msg := "Bytes of public key is not valid"
-		fmt.Println("[LOG]:", msg)
 		return "", 0, errors.New(msg)
 	}
 	return base64.StdEncoding.EncodeToString(nBytes), int64(e), nil
 }
 
 func (s *service) DeleteUser(ctx context.Context, tokenId string) error {
-	fmt.Println("[Delete user method]")
 	return DeleteUserByTokenIdDB(ctx, tokenId, s.table)
 }
