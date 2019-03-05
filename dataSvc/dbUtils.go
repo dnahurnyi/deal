@@ -12,13 +12,14 @@ import (
 )
 
 type UserDB struct {
-	Name      string             `bson:"name,omitempty"`
-	Surname   string             `bson:"surname,omitempty"`
-	Username  string             `bson:"username,omitempty"`
-	Id        primitive.ObjectID `bson:"_id,omitempty"`
-	DealDocs  []string           `bson:"deal_docs"`
-	Offerings []string           `bson:"offerings"`
-	Accepted  []string           `bson:"accepted"`
+	Name          string             `bson:"name,omitempty"`
+	Surname       string             `bson:"surname,omitempty"`
+	Username      string             `bson:"username,omitempty"`
+	Id            primitive.ObjectID `bson:"_id,omitempty"`
+	DealDocs      []string           `bson:"deal_docs"`
+	Offerings     []string           `bson:"offerings"`
+	Accepted      []string           `bson:"accepted"`
+	Participating []string           `bson:"participating"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
@@ -48,6 +49,16 @@ type DealDocumentDB struct {
 	Pacts        []PactDB           `bson:"pacts,omitempty"`
 	FinalVersion string             `bson:"final_version,omitempty"`
 	Judge        SideDB             `bson:"judge,omitempty"`
+	Status       string             `bson:"status,omitempty"`
+}
+
+func (dealDoc DealDocumentDB) getCurrentPact() (PactDB, error) {
+	for _, pact := range dealDoc.Pacts {
+		if pact.Version == dealDoc.FinalVersion {
+			return pact, nil
+		}
+	}
+	return PactDB{}, fmt.Errorf("Deal doesn't have pact for version %s", dealDoc.FinalVersion)
 }
 
 func (u *UserDB) toMongoFormat() bson.D {
@@ -61,12 +72,9 @@ func (u *UserDB) toMongoFormat() bson.D {
 	if len(u.Username) > 0 {
 		es = append(es, bson.E{Key: "username", Value: u.Username})
 	}
-	if len(u.DealDocs) > 0 {
-		es = append(es, bson.E{Key: "deal_docs", Value: u.DealDocs})
-	}
-	if len(u.Offerings) > 0 {
-		es = append(es, bson.E{Key: "offerings", Value: u.Offerings})
-	}
+	es = append(es, bson.E{Key: "deal_docs", Value: u.DealDocs})
+	es = append(es, bson.E{Key: "offerings", Value: u.Offerings})
+	es = append(es, bson.E{Key: "accepted", Value: u.Accepted})
 	return es
 }
 
@@ -80,6 +88,9 @@ func (dd *DealDocumentDB) toMongoFormat() bson.D {
 	}
 	if dd.Judge.Type == pb.SideType_JUDGE {
 		es = append(es, bson.E{Key: "judge", Value: dd.Judge})
+	}
+	if len(dd.Status) > 0 {
+		es = append(es, bson.E{Key: "status", Value: dd.Status})
 	}
 	return es
 }
@@ -155,6 +166,7 @@ func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo
 	dealDocumentRes := &pb.DealDocument{
 		Id:           dealDocDB.ID.Hex(),
 		FinalVersion: dealDocDB.FinalVersion,
+		Status:       dealDocDB.Status,
 	}
 	if len(dealDocDB.Judge.Participants) != 0 {
 		participants := []*pb.Participant{}
@@ -292,6 +304,7 @@ func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.Side
 		fmt.Println("[ERROR]: ", "Failed to accept deal for user "+userID, err.Error())
 		return err
 	}
+	fmt.Println("userAccepted: ", userAccepted.Offerings)
 	err = UpdateUserDB(ctx, userID, userAccepted, userTable)
 	if err != nil {
 		fmt.Println("[ERROR]: ", "Failed to update user "+userID, err.Error())
@@ -474,6 +487,7 @@ func CreateDealDocumentDB(ctx context.Context, dealDocument DealDocumentDB, tabl
 
 func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
 	var err error
+	resUser := user
 	if user == nil {
 		err = fmt.Errorf("Invalid user in input")
 		return nil, err
@@ -481,7 +495,7 @@ func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
 	initOfferLen := len(user.Offerings)
 	for i, offerID := range user.Offerings {
 		if offerID == dealID {
-			user.Offerings = append(user.Offerings[:i], user.Offerings[i+1:]...)
+			resUser.Offerings = append(user.Offerings[:i], user.Offerings[i+1:]...)
 			break
 		}
 	}
@@ -489,6 +503,112 @@ func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
 		err = fmt.Errorf("Failed to find offer %q in user offers", dealID)
 		return nil, err
 	}
-	user.Accepted = append(user.Accepted, dealID)
-	return user, err
+	resUser.Accepted = append(user.Accepted, dealID)
+	return resUser, err
+}
+
+// CheckToWatchDeal checkck whether it's needed to send deal `dealID` to the watcher to watch it's timeout
+func CheckToWatchDeal(ctx context.Context, dealDocID string, dealDocTable *mongo.Collection) (bool, error) {
+	// Get deal document
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, dealDocTable)
+	if err != nil {
+		fmt.Println("Failed to get deal document: ", err)
+		return false, err
+	}
+	// Check whether deal document accepted by everyone
+	isDealDocAccepted, err := isDealDocumentAccepted(dealDoc)
+	if err != nil {
+		fmt.Println("Failed to check acceptance of deal document: ", err)
+		return false, err
+	}
+	return isDealDocAccepted, err
+}
+
+// UpdateDealStatus updates deal document `dealDocID` status to `status`
+func UpdateDealStatus(ctx context.Context, dealDocID string, status string, dealDocTable *mongo.Collection) error {
+	// Get deal document
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
+	if err != nil {
+		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+	_, err = dealDocTable.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDocIDDB}},
+		bson.D{{"$set", []bson.E{bson.E{Key: "status", Value: "ACCEPTED"}}}},
+	)
+	return err
+}
+
+func isDealDocumentAccepted(dealDoc *DealDocumentDB) (isDealDocAccepted bool, err error) {
+	var pact *PactDB
+	for i, pactTmp := range dealDoc.Pacts {
+		if pactTmp.Version == dealDoc.FinalVersion {
+			pact = &dealDoc.Pacts[i]
+		}
+	}
+	if pact == nil {
+		err = errors.New("Deal document is invalid, can't find needed pact")
+		fmt.Println("[ERROR]: ", err.Error())
+		return false, err
+	}
+	// Check blue side
+	if len(pact.Blue.Participants) == 0 {
+		err = fmt.Errorf("Deal document has no participants on Blue side")
+		fmt.Println("[ERROR]: ", err.Error())
+		return false, err
+	}
+	for _, participant := range pact.Blue.Participants {
+		if participant.Accepted == false {
+			return false, nil
+		}
+	}
+
+	// Check red side
+	if len(pact.Red.Participants) == 0 {
+		err = fmt.Errorf("Deal document has no participants on Red side")
+		fmt.Println("[ERROR]: ", err.Error())
+		return false, err
+	}
+	for _, participant := range pact.Red.Participants {
+		if participant.Accepted == false {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+// TellUserDealStarted change user stats that shows that they are participating in deal
+func TellUserDealStarted(ctx context.Context, dealDoc DealDocumentDB, userTable *mongo.Collection) error {
+	// Get current pact
+	pact, err := dealDoc.getCurrentPact()
+	if err != nil {
+		return fmt.Errorf("Failed to get pact: %s", err.Error())
+	}
+	// Get all participants
+	allParticipants := append(pact.Blue.Participants, pact.Red.Participants...)
+	for _, p := range allParticipants {
+		// Find user
+		user, err := GetUserByIdDB(ctx, p.ID, userTable)
+		if err != nil {
+			return fmt.Errorf("Failed to get user from pact data: %s", err.Error())
+		}
+		// Update user stats
+		resUser := *user
+		for i, dealID := range user.Accepted {
+			if dealDoc.ID.Hex() == dealID {
+				resUser.Accepted = append(user.Accepted[:i], user.Accepted[i+1:]...)
+				resUser.Participating = append(user.Participating, dealID)
+				break
+			}
+		}
+		if len(resUser.Accepted) == len(user.Accepted) {
+			return fmt.Errorf("User %s don't accept deal %s", user.Id, dealDoc.ID.Hex())
+		}
+		// Save user
+		err = UpdateUserDB(ctx, p.ID, &resUser, userTable)
+		if err != nil {
+			return fmt.Errorf("Failed to update user %s: %s", p.ID, err.Error())
+		}
+	}
+	return nil
 }

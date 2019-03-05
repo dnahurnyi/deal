@@ -19,6 +19,8 @@ message User {
   string id = 5;
   repeated string deal_docs = 6;
   repeated string offerings = 7;
+  repeated string accepted = 8;
+  repeated string participating = 9;
 }
 
 message CreateUserReq {

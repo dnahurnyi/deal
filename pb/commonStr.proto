@@ -84,6 +84,7 @@ message DealDocument {
   map<string,  Pact> pacts = 2; // Version -> Pact
   Side judge = 3;
   string final_version = 4;
+  string status = 5;
 }
 
 enum serviceId {

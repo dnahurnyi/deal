@@ -15,19 +15,26 @@ SERVICENAME  := authsvc
 REPO  := n826/travel
 TAG       := v1
 DEPLOYMENT_YAML_TEMPL = $(TOPDIR)/kubernetes/templates/deployment.yaml.template
-# SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/configs/minikube/svc.yaml.template
+SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/templates/svc.yaml.template
 
 HTTPPORT := 8013
-# NODEHTTPPORT := 30093
+NODEHTTPPORT := 30253
 GRPCPORT := 8012
-# NODEGRPCPORT := 30094
+NODEGRPCPORT := 30252
 
 IV := 1
 
 OS := $(shell uname -s)
 
 DEPLOYMENT_YAML = $(TOPDIR)/kubernetes/generated/deployment-$(SERVICENAME).yaml
-SVC_YAML = $(TOPDIR)/kubernetes/configs/generated/svc-$(SERVICENAME).yaml
+SVC_YAML = $(TOPDIR)/kubernetes/generated/svc-$(SERVICENAME).yaml
+
+create-svc:
+	@sed -e "s/{SERVICENAME}/${SERVICENAME}/g" < $(SVC_YAML_TEMPL) > $(SVC_YAML)
+	@sed -i '' "s/{HTTPPORT}/$(HTTPPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{GRPCPORT}/$(GRPCPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{NODEHTTPPORT}/$(NODEHTTPPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{NODEGRPCPORT}/$(NODEGRPCPORT)/g" $(SVC_YAML)
 
 redep:
 	@echo Redeploy $(SERVICENAME)
