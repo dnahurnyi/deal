@@ -40,3 +40,13 @@ module-install:
 	
 clean:
 	@rm -rf $(TOPDIR)/pb/generated
+
+prepare:
+	@echo Install needed deps and config environment
+	@go get -u github.com/golang/protobuf/protoc-gen-go
+	@kubectl config use-context gke_travel2-232717_us-central1-a_standard-cluster-1
+
+return:
+	@echo Return to the working environment environment
+	@cd /Users/n826/ws/src/github.com/orkusinc/api && go install ./vendor/github.com/golang/protobuf/protoc-gen-go && cd /Users/n826/ws/src/github.com/DenysNahurnyi/deal
+	@kubectl config use-context minikube
