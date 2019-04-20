@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/DenysNahurnyi/deal/pb/generated/pb"
 
@@ -61,7 +62,18 @@ func (s *service) GetPubKey() *rsa.PublicKey {
 }
 
 func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, password string) (string, error) {
-	fmt.Println("[SignUp method called]")
+	if len(password) < 3 || len(password) > 30 {
+		return "", status.Errorf(codes.InvalidArgument, "Validation error: password length must be in [3, 30] range")
+	}
+
+	if userReq == nil || userReq.GetUser() == nil {
+		return "", status.Errorf(codes.InvalidArgument, "User object mustn't be empty")
+	}
+	if len(userReq.GetUser().GetUsername()) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "Validation error: username length mustn't be empty")
+	}
+	userReq.User.Username = strings.TrimSpace(userReq.User.Username)
+
 	user := UserDB{
 		Username: userReq.GetUser().GetUsername(),
 		Password: password,
@@ -97,6 +109,12 @@ func (s *service) SignUp(ctx context.Context, userReq *pb.CreateUserReq, passwor
 }
 
 func (s *service) Login(ctx context.Context, username, password string) (string, error) {
+	if len(username) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "Invalid params, username musn't be empty")
+	}
+	if len(password) == 0 {
+		return "", status.Errorf(codes.InvalidArgument, "Invalid params, password musn't be empty")
+	}
 	userGet, err := GetUserByUsernameDB(ctx, username, s.table)
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "Failed to get user from DB: %q", err)
@@ -113,7 +131,6 @@ func (s *service) Login(ctx context.Context, username, password string) (string,
 }
 
 func (s *service) GetKey(ctx context.Context) (string, int64, error) {
-	fmt.Println("[Get key method]")
 	uKey := s.uKey
 	if uKey == nil {
 		msg := "Public key is not present in Auth service"

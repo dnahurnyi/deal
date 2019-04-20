@@ -37,7 +37,6 @@ func VerifyToken(uKey *rsa.PublicKey) grpc.ServerRequestFunc {
 
 		// Pull input info from context
 		tmpMeta, ok := ctx.Value(META).(pb.MetaInfo)
-		fmt.Println("IN VerifyToken: ", ok)
 
 		if !ok {
 			return ctx
@@ -45,7 +44,9 @@ func VerifyToken(uKey *rsa.PublicKey) grpc.ServerRequestFunc {
 		request := tmpMeta.Request
 		tokenString := request.Headers[GRPCAUTHORIZATIONHEADER]
 		userID, err := checkToken(uKey, tokenString)
-		fmt.Println("IN VerifyToken: ", userID, err)
+		if err != nil {
+			return ctx
+		}
 
 		var tokenRes = &pb.Token{
 			Content: map[string]string{
