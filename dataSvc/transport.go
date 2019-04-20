@@ -16,16 +16,17 @@ import (
 )
 
 type grpcServer struct {
-	createUser         grpctransport.Handler
-	getUser            grpctransport.Handler
-	readiness          grpctransport.Handler
-	deleteUser         grpctransport.Handler
-	updateUser         grpctransport.Handler
-	existenceCheck     grpctransport.Handler
-	createDealDocument grpctransport.Handler
-	getDealDocument    grpctransport.Handler
-	offerDealDocument  grpctransport.Handler
-	acceptDealDocument grpctransport.Handler
+	createUser              grpctransport.Handler
+	getUser                 grpctransport.Handler
+	readiness               grpctransport.Handler
+	deleteUser              grpctransport.Handler
+	updateUser              grpctransport.Handler
+	existenceCheck          grpctransport.Handler
+	createDealDocument      grpctransport.Handler
+	getDealDocument         grpctransport.Handler
+	offerDealDocument       grpctransport.Handler
+	acceptDealDocument      grpctransport.Handler
+	judgeAcceptDealDocument grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -106,7 +107,34 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
+		judgeAcceptDealDocument: grpctransport.NewServer(
+			makeJudgeAcceptDealDocumentEndpoint(svc),
+			decodeJudgeAcceptDealDocumentReq,
+			encodeJudgeAcceptDealDocumentResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
 	}
+}
+
+func (s *grpcServer) JudgeAcceptDealDocument(ctx context.Context, req *pb.JudgeAcceptDealDocumentReq) (*pb.JudgeAcceptDealDocumentResp, error) {
+	_, resp, err := s.judgeAcceptDealDocument.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.JudgeAcceptDealDocumentResp), nil
+}
+
+func decodeJudgeAcceptDealDocumentReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.JudgeAcceptDealDocumentReq)
+	return req, nil
+}
+
+func encodeJudgeAcceptDealDocumentResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.JudgeAcceptDealDocumentResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) AcceptDealDocument(ctx context.Context, req *pb.AcceptDealDocumentReq) (*pb.AcceptDealDocumentResp, error) {

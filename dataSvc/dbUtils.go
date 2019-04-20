@@ -15,11 +15,19 @@ type UserDB struct {
 	Name          string             `bson:"name,omitempty"`
 	Surname       string             `bson:"surname,omitempty"`
 	Username      string             `bson:"username,omitempty"`
-	Id            primitive.ObjectID `bson:"_id,omitempty"`
+	ID            primitive.ObjectID `bson:"_id,omitempty"`
 	DealDocs      []string           `bson:"deal_docs"`
 	Offerings     []string           `bson:"offerings"`
 	Accepted      []string           `bson:"accepted"`
 	Participating []string           `bson:"participating"`
+	IsJudge       bool               `bson:"is_judge"`
+	JudgeProfile  *JudgeProfile      `bson:"judge_profile"`
+}
+
+// JudgeProfile is an object judge profile the stores in the DB
+type JudgeProfile struct {
+	Propositions   []string `bson:"propositions"`
+	Participatings []string `bson:"participatings"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
@@ -61,6 +69,56 @@ func (dealDoc DealDocumentDB) getCurrentPact() (PactDB, error) {
 	return PactDB{}, fmt.Errorf("Deal doesn't have pact for version %s", dealDoc.FinalVersion)
 }
 
+// ConvertUserToDB converts user from pb.User type to UserDB type
+func ConvertUserToDB(user *pb.User) (*UserDB, error) {
+	if user == nil {
+		return nil, fmt.Errorf("User is not valid")
+	}
+	userResp := &UserDB{
+		Name:          user.GetName(),
+		Surname:       user.GetSurname(),
+		Username:      user.GetUsername(),
+		DealDocs:      user.GetDealDocs(),
+		Accepted:      user.GetAccepted(),
+		Offerings:     user.GetOfferings(),
+		Participating: user.GetParticipating(),
+	}
+	if len(user.GetId()) > 0 {
+		userID, err := primitive.ObjectIDFromHex(user.GetId())
+		if err != nil {
+			return nil, fmt.Errorf("Invalid user, bad id %q", user.GetId())
+		}
+		userResp.ID = userID
+	}
+
+	return userResp, nil
+}
+
+// ConvertDBToUser converts user from *UserDB type to *pb.User type
+func ConvertDBToUser(user *UserDB) (*pb.User, error) {
+	if user == nil {
+		return nil, fmt.Errorf("User is not valid")
+	}
+	userResp := &pb.User{
+		Name:          user.Name,
+		Surname:       user.Surname,
+		Username:      user.Username,
+		DealDocs:      user.DealDocs,
+		Accepted:      user.Accepted,
+		Offerings:     user.Offerings,
+		Participating: user.Participating,
+		Id:            user.ID.Hex(),
+		IsJudge:       user.IsJudge,
+	}
+	if user.JudgeProfile != nil {
+		userResp.JudgeProfile = &pb.JudgeProfile{
+			Propositions:   user.JudgeProfile.Propositions,
+			Participatings: user.JudgeProfile.Participatings,
+		}
+	}
+	return userResp, nil
+}
+
 func (u *UserDB) toMongoFormat() bson.D {
 	es := []bson.E{}
 	if len(u.Name) > 0 {
@@ -75,6 +133,11 @@ func (u *UserDB) toMongoFormat() bson.D {
 	es = append(es, bson.E{Key: "deal_docs", Value: u.DealDocs})
 	es = append(es, bson.E{Key: "offerings", Value: u.Offerings})
 	es = append(es, bson.E{Key: "accepted", Value: u.Accepted})
+	es = append(es, bson.E{Key: "participating", Value: u.Participating})
+	if u.JudgeProfile != nil {
+		es = append(es, bson.E{Key: "judge_profile.participatings", Value: u.JudgeProfile.Participatings})
+		es = append(es, bson.E{Key: "judge_profile.propositions", Value: u.JudgeProfile.Propositions})
+	}
 	return es
 }
 
@@ -103,7 +166,8 @@ func CreateUserDB(ctx context.Context, user UserDB, table *mongo.Collection) (st
 	return res.InsertedID.(primitive.ObjectID).Hex(), err
 }
 
-func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*UserDB, error) {
+// GetUserByIDDB returns user from DB by it's id
+func GetUserByIDDB(ctx context.Context, userId string, table *mongo.Collection) (*UserDB, error) {
 	userIDDB, err := primitive.ObjectIDFromHex(userId)
 	if err != nil {
 		fmt.Println("Error creating object id to get user: ", err)
@@ -123,21 +187,34 @@ func GetUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) 
 	return userDB, nil
 }
 
-func GetUserByIdDBConvert(ctx context.Context, userID string, table *mongo.Collection) (*pb.User, error) {
-	userDB, err := GetUserByIdDB(ctx, userID, table)
-	if err != nil || userDB == nil {
+// GetJudges returns all judges (users that has `isJudge` property true)
+func GetJudges(ctx context.Context, table *mongo.Collection) ([]*UserDB, error) {
+	judges := []*UserDB{}
+
+	cursor, err := table.Find(ctx, bson.D{{Key: "is_judge", Value: true}})
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		j := &UserDB{}
+		if err := cursor.Decode(j); err != nil {
+			fmt.Println("Error getting judges from mongo: ", err)
+			return nil, err
+		}
+		judges = append(judges, j)
+	}
+
+	fmt.Println("err: ", err, judges)
+	if err != nil {
+		if err.Error() == "mongo: no documents in result" {
+			return nil, nil
+		}
+		fmt.Println("Error getting judges from mongo: ", err)
 		return nil, err
 	}
 
-	userRes := &pb.User{
-		Name:      userDB.Name,
-		Surname:   userDB.Surname,
-		Username:  userDB.Username,
-		DealDocs:  userDB.DealDocs,
-		Offerings: userDB.Offerings,
-	}
-	return userRes, err
+	return judges, nil
 }
+
 func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collection) (*DealDocumentDB, error) {
 	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
 	if err != nil {
@@ -219,55 +296,43 @@ func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo
 	return dealDocumentRes, err
 }
 
-func DeleteUserByIdDB(ctx context.Context, userId string, table *mongo.Collection) (*pb.User, error) {
+// DeleteUserByIDDB deletes user `userId` from DB table `table`
+func DeleteUserByIDDB(ctx context.Context, userId string, table *mongo.Collection) (*UserDB, error) {
 	userIDDB, err := primitive.ObjectIDFromHex(userId)
 	if err != nil {
 		fmt.Println("Error creating object id to get user: ", err)
 		return nil, err
 	}
-	userDB := UserDB{}
+	userDB := &UserDB{}
 
-	err = table.FindOneAndDelete(ctx, bson.D{{Key: "_id", Value: userIDDB}}).Decode(&userDB)
+	err = table.FindOneAndDelete(ctx, bson.D{{Key: "_id", Value: userIDDB}}).Decode(userDB)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
-			return &pb.User{}, nil
+			return nil, nil
 		}
 		fmt.Println("Error getting user from mongo: ", err)
 		return nil, err
 	}
 
-	userRes := &pb.User{
-		Name:      userDB.Name,
-		Surname:   userDB.Surname,
-		Username:  userDB.Username,
-		DealDocs:  userDB.DealDocs,
-		Offerings: userDB.Offerings,
-	}
-	return userRes, err
+	return userDB, err
 }
 
-func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Collection) (*pb.User, string, error) {
-	userDB := UserDB{}
-	err := table.FindOne(ctx, bson.D{{Key: "username", Value: username}}).Decode(&userDB)
+// GetUserByUsernameDB returns UserDB by username if it exists
+func GetUserByUsernameDB(ctx context.Context, username string, table *mongo.Collection) (*UserDB, string, error) {
+	userDB := &UserDB{}
+	err := table.FindOne(ctx, bson.D{{Key: "username", Value: username}}).Decode(userDB)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
-			return &pb.User{}, "", nil
+			return nil, "", nil
 		}
 		fmt.Println("Error getting user from mongo: ", err)
 		return nil, "", err
 	}
 
-	userRes := &pb.User{
-		Name:      userDB.Name,
-		Surname:   userDB.Surname,
-		Username:  userDB.Username,
-		DealDocs:  userDB.DealDocs,
-		Offerings: userDB.Offerings,
-	}
-	return userRes, userDB.Id.Hex(), err
+	return userDB, userDB.ID.Hex(), err
 }
 
-// UpdateUserDB updates user in DB using userID to find it and user to update data
+// UpdateUserDB updates user in DB using {userID} to find it and user to update data
 func UpdateUserDB(ctx context.Context, userID string, user *UserDB, table *mongo.Collection) error {
 	userIDDB, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
@@ -292,19 +357,17 @@ func AcceptDealDocDB(ctx context.Context, dealDocID, userID string, side pb.Side
 		return err
 	}
 
-	user, err := GetUserByIdDB(ctx, userID, userTable)
-	if err != nil || user == nil {
+	user, err := GetUserByIDDB(ctx, userID, userTable)
+	if err != nil || len(user.Username) == 0 {
 		err = fmt.Errorf("Failed to get user by %q id", userID)
 		fmt.Println("[ERROR]: ", err.Error())
 		return err
 	}
 	userAccepted, err := userAcceptDeal(user, dealDocID)
-	fmt.Println("userAccepted: ", userAccepted)
 	if err != nil {
 		fmt.Println("[ERROR]: ", "Failed to accept deal for user "+userID, err.Error())
 		return err
 	}
-	fmt.Println("userAccepted: ", userAccepted.Offerings)
 	err = UpdateUserDB(ctx, userID, userAccepted, userTable)
 	if err != nil {
 		fmt.Println("[ERROR]: ", "Failed to update user "+userID, err.Error())
@@ -343,9 +406,7 @@ func OfferDealDocDB(ctx context.Context, dealDocID, userID string, side pb.SideT
 		fmt.Println("Failed to get deal document: ", err)
 		return err
 	}
-	fmt.Println("Before: ", dealDoc.Pacts[0])
 	dealDoc, err = offerDealForSide(dealDoc, side, userID)
-	fmt.Println("After: ", dealDoc.Pacts[0])
 	if err != nil {
 		fmt.Println("Failed to offer the deal: ", err)
 		return err
@@ -389,12 +450,10 @@ func offerDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) 
 			return nil, err
 		}
 		//Create new participant `userID` on `pactSide`
-		fmt.Println("before dealDoc: ", dealDoc)
 		pactSide.Participants = append(pactSide.Participants, ParticipantDB{
 			ID:       userID,
 			Accepted: false,
 		})
-		fmt.Println("after dealDoc: ", dealDoc)
 		return dealDoc, nil
 	} else {
 		// For judge
@@ -407,6 +466,7 @@ func offerDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) 
 	}
 }
 
+// Update {userID} user acceptance status in deal document
 func acceptDealForSide(dealDoc *DealDocumentDB, side pb.SideType, userID string) (*DealDocumentDB, error) {
 	var err error
 	if side != pb.SideType_JUDGE {
@@ -485,6 +545,7 @@ func CreateDealDocumentDB(ctx context.Context, dealDocument DealDocumentDB, tabl
 	return res.InsertedID.(primitive.ObjectID).Hex(), err
 }
 
+// Move deal in user [Offerings] -> [Accepted]
 func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
 	var err error
 	resUser := user
@@ -507,7 +568,7 @@ func userAcceptDeal(user *UserDB, dealID string) (*UserDB, error) {
 	return resUser, err
 }
 
-// CheckToWatchDeal checkck whether it's needed to send deal `dealID` to the watcher to watch it's timeout
+// CheckToWatchDeal checks whether it's needed to send deal `dealID` to the watcher to watch it's timeout
 func CheckToWatchDeal(ctx context.Context, dealDocID string, dealDocTable *mongo.Collection) (bool, error) {
 	// Get deal document
 	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, dealDocTable)
@@ -516,12 +577,12 @@ func CheckToWatchDeal(ctx context.Context, dealDocID string, dealDocTable *mongo
 		return false, err
 	}
 	// Check whether deal document accepted by everyone
-	isDealDocAccepted, err := isDealDocumentAccepted(dealDoc)
+	isDealDocAcceptedByUsers, err := isDealDocumentAcceptedByUsers(dealDoc)
 	if err != nil {
 		fmt.Println("Failed to check acceptance of deal document: ", err)
 		return false, err
 	}
-	return isDealDocAccepted, err
+	return isDealDocAcceptedByUsers, err
 }
 
 // UpdateDealStatus updates deal document `dealDocID` status to `status`
@@ -534,12 +595,12 @@ func UpdateDealStatus(ctx context.Context, dealDocID string, status string, deal
 	}
 	_, err = dealDocTable.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: dealDocIDDB}},
-		bson.D{{"$set", []bson.E{bson.E{Key: "status", Value: "ACCEPTED"}}}},
+		bson.D{{"$set", []bson.E{bson.E{Key: "status", Value: status}}}},
 	)
 	return err
 }
 
-func isDealDocumentAccepted(dealDoc *DealDocumentDB) (isDealDocAccepted bool, err error) {
+func isDealDocumentAcceptedByUsers(dealDoc *DealDocumentDB) (isDealDocAccepted bool, err error) {
 	var pact *PactDB
 	for i, pactTmp := range dealDoc.Pacts {
 		if pactTmp.Version == dealDoc.FinalVersion {
@@ -588,7 +649,7 @@ func TellUserDealStarted(ctx context.Context, dealDoc DealDocumentDB, userTable 
 	allParticipants := append(pact.Blue.Participants, pact.Red.Participants...)
 	for _, p := range allParticipants {
 		// Find user
-		user, err := GetUserByIdDB(ctx, p.ID, userTable)
+		user, err := GetUserByIDDB(ctx, p.ID, userTable)
 		if err != nil {
 			return fmt.Errorf("Failed to get user from pact data: %s", err.Error())
 		}
@@ -602,9 +663,10 @@ func TellUserDealStarted(ctx context.Context, dealDoc DealDocumentDB, userTable 
 			}
 		}
 		if len(resUser.Accepted) == len(user.Accepted) {
-			return fmt.Errorf("User %s don't accept deal %s", user.Id, dealDoc.ID.Hex())
+			return fmt.Errorf("User %s don't accept deal %s", user.ID, dealDoc.ID.Hex())
 		}
 		// Save user
+		fmt.Printf("User %q participating in %v has accepted %v", resUser.Username, resUser.Participating, resUser.Accepted)
 		err = UpdateUserDB(ctx, p.ID, &resUser, userTable)
 		if err != nil {
 			return fmt.Errorf("Failed to update user %s: %s", p.ID, err.Error())

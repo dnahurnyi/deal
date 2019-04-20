@@ -15,12 +15,19 @@ message User {
   string name = 1;
   string surname = 2;
   string username = 3;
-  string password = 4;
   string id = 5;
   repeated string deal_docs = 6;
   repeated string offerings = 7;
   repeated string accepted = 8;
   repeated string participating = 9;
+  bool is_judge = 10;
+  JudgeProfile judge_profile = 11;
+}
+
+message JudgeProfile {
+  repeated string propositions = 1;
+  // For now there will be only one judge on one deal, so once judge accept - it starts to participate
+  repeated string participatings = 2; 
 }
 
 message CreateUserReq {
@@ -85,6 +92,7 @@ message OfferDealDocumentReq {
   ReqHdr req_hdr = 1;
   string deal_doc_id = 2;
   string username = 3;
+  bool to_judge = 4;
 }
 
 message OfferDealDocumentResp {
@@ -98,6 +106,15 @@ message AcceptDealDocumentReq {
 }
 
 message AcceptDealDocumentResp {
+  RespHdr resp_hdr = 1;
+}
+
+message JudgeAcceptDealDocumentReq {
+  ReqHdr req_hdr = 1;
+  string deal_doc_id = 2;
+}
+
+message JudgeAcceptDealDocumentResp {
   RespHdr resp_hdr = 1;
 }
 
@@ -149,6 +166,12 @@ service DataService {
   rpc AcceptDealDocument (AcceptDealDocumentReq) returns (AcceptDealDocumentResp) {
     option (google.api.http) = {
         post: "/v1/data/deal/accept",
+        body: "*"
+    };
+  }
+  rpc JudgeAcceptDealDocument (JudgeAcceptDealDocumentReq) returns (JudgeAcceptDealDocumentResp) {
+    option (google.api.http) = {
+        post: "/v1/data/deal/judge-accept",
         body: "*"
     };
   }

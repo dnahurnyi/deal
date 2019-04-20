@@ -35,6 +35,7 @@ create-svc:
 	@sed -i '' "s/{GRPCPORT}/$(GRPCPORT)/g" $(SVC_YAML)
 	@sed -i '' "s/{NODEHTTPPORT}/$(NODEHTTPPORT)/g" $(SVC_YAML)
 	@sed -i '' "s/{NODEGRPCPORT}/$(NODEGRPCPORT)/g" $(SVC_YAML)
+	@kubectl create -f $(SVC_YAML)
 
 redep:
 	@echo Redeploy $(SERVICENAME)

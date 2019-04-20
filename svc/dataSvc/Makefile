@@ -15,7 +15,7 @@ SERVICENAME  := datasvc
 REPO  := n826/travel
 TAG       := v1
 DEPLOYMENT_YAML_TEMPL = $(TOPDIR)/kubernetes/templates/deployment.yaml.template
-# SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/configs/minikube/svc.yaml.template
+SVC_YAML_TEMPL = $(TOPDIR)/kubernetes/templates/svc.yaml.template
 
 HTTPPORT := 8011
 # NODEHTTPPORT := 30093
@@ -27,7 +27,7 @@ IV := 1
 OS := $(shell uname -s)
 
 DEPLOYMENT_YAML = $(TOPDIR)/kubernetes/generated/deployment-$(SERVICENAME).yaml
-SVC_YAML = $(TOPDIR)/kubernetes/configs/generated/svc-$(SERVICENAME).yaml
+SVC_YAML = $(TOPDIR)/kubernetes/generated/svc-$(SERVICENAME).yaml
 
 module: build-docker
 
@@ -43,6 +43,14 @@ redep:
 	@docker push $(REPO):$(SERVICENAME)-v$(IV)
 	@kubectl delete deployment $(SERVICENAME)-deployment
 	@kubectl create -f $(DEPLOYMENT_YAML)
+
+create-svc:
+	@sed -e "s/{SERVICENAME}/${SERVICENAME}/g" < $(SVC_YAML_TEMPL) > $(SVC_YAML)
+	@sed -i '' "s/{HTTPPORT}/$(HTTPPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{GRPCPORT}/$(GRPCPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{NODEHTTPPORT}/$(NODEHTTPPORT)/g" $(SVC_YAML)
+	@sed -i '' "s/{NODEGRPCPORT}/$(NODEGRPCPORT)/g" $(SVC_YAML)
+	@kubectl create -f $(SVC_YAML)
 	
 module-install: module
 ifneq ($(BUILD_TYPE),PRODUCTION)
