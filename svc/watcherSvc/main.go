@@ -36,7 +36,7 @@ func main() {
 	ctx := context.Background()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	client, err := mongo.Connect(ctx, "mongodb://n826:qwerty12345@ds055732.mlab.com:55732/travel")
+	dbClient, err := mongo.Connect(ctx, "mongodb://n826:qwerty12345@ds055732.mlab.com:55732/travel")
 	if err != nil {
 		fmt.Println("Failed to connect to mongo, err: ", err)
 		return
@@ -46,7 +46,7 @@ func main() {
 		fmt.Println("Error creating client for dataSvc: ", err)
 		return
 	}
-	svc, err := watcherSvc.NewService(logger, client, dataSvcClient)
+	svc, err := watcherSvc.NewService(ctx, logger, dbClient, dataSvcClient)
 	if err != nil {
 		fmt.Println("Failed to create new watcher service: ", err)
 		return

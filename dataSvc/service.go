@@ -36,7 +36,6 @@ type Service interface {
 
 type service struct {
 	envType          string
-	mongoClient      *mongo.Client
 	userTable        *mongo.Collection
 	dealDocTable     *mongo.Collection
 	authSvcClient    pb.AuthServiceClient
@@ -68,7 +67,6 @@ func NewService(logger log.Logger, mgc *mongo.Client, authSvcClient *pb.AuthServ
 
 	return &service{
 		envType:          "test",
-		mongoClient:      mgc,
 		userTable:        userTable,
 		dealDocTable:     dealDocTable,
 		authSvcClient:    authSvcClientValue,
@@ -335,23 +333,25 @@ func (s *service) AcceptDealDocument(ctx context.Context, userID, dealDocID stri
 			fmt.Println("[LOG]:", "Failed to offer the deal : "+dealDocID+" for judges: ", err)
 			return err
 		}
+		// Move this functionality to the independent method s.SendDealToWatcher
+
 		// Send deal to watcher
-		_, err := s.watcherSvcClient.HoldAndWatch(ctx, &pb.HoldAndWatchReq{
-			ReqHdr: &pb.ReqHdr{
-				Tid: "1234",
-			},
-			DealId: dealDocID,
-		})
-		if err != nil {
-			fmt.Println("[LOG]:", "Failed to watch new deal: ", err)
-			return err
-		}
-		// Update user deal status
-		err = TellUserDealStarted(ctx, *dealDoc, s.userTable)
-		if err != nil {
-			fmt.Printf("[LOG]: Failed to update user statuses to [PARTICIPATING] in deal %s: %s\n", dealDoc.ID, err)
-			return err
-		}
+		// _, err := s.watcherSvcClient.HoldAndWatch(ctx, &pb.HoldAndWatchReq{
+		// 	ReqHdr: &pb.ReqHdr{
+		// 		Tid: "1234",
+		// 	},
+		// 	DealId: dealDocID,
+		// })
+		// if err != nil {
+		// 	fmt.Println("[LOG]:", "Failed to watch new deal: ", err)
+		// 	return err
+		// }
+		// // Update user deal status
+		// err = TellUserDealStarted(ctx, *dealDoc, s.userTable)
+		// if err != nil {
+		// 	fmt.Printf("[LOG]: Failed to update user statuses to [PARTICIPATING] in deal %s: %s\n", dealDoc.ID, err)
+		// 	return err
+		// }
 	}
 	return err
 }
@@ -428,6 +428,18 @@ func (s *service) JudgeAccept(ctx context.Context, judgeID, dealDocID string) er
 					fmt.Println("[LOG]:", "Failed to update judge "+judge.ID.Hex()+" propositions: ", err)
 					return err
 				}
+				// All participants accepted, deal is ready to wait for resolve
+				err = UpdateDealStatus(ctx, dealDocID, "ALL_ACCEPTED", s.dealDocTable)
+				if err != nil {
+					fmt.Println("[LOG]:", "Failed to update deal "+dealDocID+" status: ", err)
+					return err
+				}
+				// Update deal status and call watcher
+				err = s.SendDealToWatcher(ctx, dealDoc)
+				if err != nil {
+					fmt.Println("[LOG]:", "Failed to send deal "+dealDoc.ID.Hex()+" to watcher service: ", err)
+					return err
+				}
 				break
 			}
 		}
@@ -453,5 +465,33 @@ func (s *service) JudgeAccept(ctx context.Context, judgeID, dealDocID string) er
 		}
 	}
 
+	return nil
+}
+
+func (s *service) SendDealToWatcher(ctx context.Context, dealDoc *DealDocumentDB) error {
+	dealID := dealDoc.ID.Hex()
+	currentPact, err := (*dealDoc).getCurrentPact()
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document current pact: ", err)
+		return err
+	}
+	// Send deal to watcher
+	_, err = s.watcherSvcClient.HoldAndWatch(ctx, &pb.HoldAndWatchReq{
+		ReqHdr: &pb.ReqHdr{
+			Tid: "1234",
+		},
+		DealId:  dealID,
+		Timeout: currentPact.Timeout,
+	})
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to watch new deal: ", err)
+		return err
+	}
+	// Update user deal status
+	err = TellUserDealStarted(ctx, *dealDoc, s.userTable)
+	if err != nil {
+		fmt.Printf("[LOG]: Failed to update user statuses to [PARTICIPATING] in deal %s: %s\n", dealDoc.ID, err)
+		return err
+	}
 	return nil
 }

@@ -14,7 +14,7 @@ func makeHoldAndWatchEndpoint(svc Service) endpoint.Endpoint {
 		if req.ReqHdr != nil {
 			tid = req.ReqHdr.Tid
 		}
-		err := svc.HoldAndWatch(ctx, req.GetDealId())
+		err := svc.HoldAndWatch(ctx, req.GetDealId(), req.GetTimeout())
 
 		return pb.HoldAndWatchResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},

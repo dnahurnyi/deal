@@ -203,7 +203,6 @@ func GetJudges(ctx context.Context, table *mongo.Collection) ([]*UserDB, error) 
 		judges = append(judges, j)
 	}
 
-	fmt.Println("err: ", err, judges)
 	if err != nil {
 		if err.Error() == "mongo: no documents in result" {
 			return nil, nil

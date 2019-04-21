@@ -47,7 +47,7 @@ redep:
 	@GOOS="linux" go build -o $(SERVICENAME) main.go
 	@docker build --rm -t $(REPO):$(SERVICENAME)-v$(IV) . && rm $(SERVICENAME)
 	@docker push $(REPO):$(SERVICENAME)-v$(IV)
-	# @kubectl delete deployment $(SERVICENAME)-deployment
+	@kubectl delete deployment $(SERVICENAME)-deployment
 	@kubectl create -f $(DEPLOYMENT_YAML)
 
 first-dep: 
