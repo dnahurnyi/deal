@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"time"
 
 	grpcutils "github.com/DenysNahurnyi/deal/common/grpc"
 	"github.com/DenysNahurnyi/deal/pb/generated/pb"
@@ -27,10 +28,12 @@ type Service interface {
 	UpdateUser(ctx context.Context, user *UserDB) (*UserDB, error)
 	CreateDealDocument(ctx context.Context, userID string, dealDocument *pb.Pact) (string, error)
 	GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error)
+	DealTimeout(ctx context.Context, dealDocID string) error
 	OfferDealDocument(ctx context.Context, dealDocId, username string, toJudge bool) error
 	AcceptDealDocument(ctx context.Context, userID, dealDocId string, side pb.SideType) error
 	OfferJudges(ctx context.Context, dealDocId string) error
 	JudgeAccept(ctx context.Context, judgeID, dealDocId string) error
+	JudgeDecide(ctx context.Context, judgeID, dealDocID, redWon string) error
 	GetPubKey() *rsa.PublicKey
 }
 
@@ -209,7 +212,12 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 	return DealDocumentDB{
 		Pacts:        []PactDB{firstPact},
 		FinalVersion: firstPact.Version,
-		Status:       "INITIAL DEAL STAGE",
+		Status: []Status{
+			Status{
+				Name: "INITIAL DEAL STAGE",
+				Time: time.Now(),
+			},
+		},
 	}, nil
 }
 
@@ -414,7 +422,11 @@ func (s *service) JudgeAccept(ctx context.Context, judgeID, dealDocID string) er
 		fmt.Println("[LOG]:", "Failed to get deal document from DB, err: ", err)
 		return err
 	}
-	if dealDoc.Status == "ACCEPTED_BY_USERS" {
+	dealStatus, err := (*dealDoc).getStatus()
+	if err != nil {
+		return err
+	}
+	if dealStatus == "ACCEPTED_BY_USERS" {
 		// If deal still waiting for judge
 		// Move deal from judge [Propositions] to [Participations]
 		propositionAccepted := false
@@ -494,4 +506,125 @@ func (s *service) SendDealToWatcher(ctx context.Context, dealDoc *DealDocumentDB
 		return err
 	}
 	return nil
+}
+
+// DealTimeout can be called only by watcherSvc that watch a timer for deal timeout
+func (s *service) DealTimeout(ctx context.Context, dealDocID string) error {
+	fmt.Println("[LOG]:", "Inside DealTimeout")
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document current pact: ", err)
+		return err
+	}
+	if dealDoc == nil {
+		err = fmt.Errorf("[LOG]:", "No deal with id %s, error: %v", dealDocID, err)
+		return err
+	}
+	// Check if winner chosen and set winner status or expiration
+	dealStatus, err := dealDoc.getStatus()
+	pact, err := dealDoc.getCurrentPact()
+	blueParticipants := pact.Blue.Participants
+	redParticipants := pact.Red.Participants
+
+	// Notify users about deal result
+	if dealStatus == "WINNER_SET" {
+		blueStatus := "losed"
+		redStatus := "won"
+		if dealDoc.Winner == "blue" {
+			blueStatus, redStatus = redStatus, blueStatus
+		}
+		for _, rP := range redParticipants {
+			err = notifyParticipantAboutResult(ctx, dealDoc.ID.Hex(), rP, redStatus, s.userTable)
+			if err != nil {
+				return fmt.Errorf("Failed to notify user about deal result: %v", err)
+			}
+		}
+		for _, bP := range blueParticipants {
+			err = notifyParticipantAboutResult(ctx, dealDoc.ID.Hex(), bP, blueStatus, s.userTable)
+			if err != nil {
+				return fmt.Errorf("Failed to notify user about deal result: %v", err)
+			}
+		}
+	} else {
+		// Judge hasn't set the winner so we will set deal result as expired
+		participants := append(blueParticipants, redParticipants...)
+		for _, p := range participants {
+			err = notifyParticipantAboutResult(ctx, dealDoc.ID.Hex(), p, "EXPIRED", s.userTable)
+			if err != nil {
+				return fmt.Errorf("Failed to notify user about deal result: %v", err)
+			}
+		}
+	}
+	err = UpdateDealStatus(ctx, dealDocID, "TIME_OUT", s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to update deal status: ", err)
+	}
+	return err
+}
+
+func notifyParticipantAboutResult(ctx context.Context, dealDocID string, participant ParticipantDB, status string, userTable *mongo.Collection) error {
+	fmt.Println("{DEBUG}:", "Update status of "+participant.ID+" to status "+status)
+	// Get user
+	user, err := GetUserByIDDB(ctx, participant.ID, userTable)
+	if err != nil {
+		fmt.Println("[LOG]", "Failed to get user from DB to set winner status")
+	}
+	// Check if user participating in the deal
+	partDealIndex := -1
+	for i, participatedDeal := range user.Participating {
+		if participatedDeal == dealDocID {
+			partDealIndex = i
+			break
+		}
+	}
+	if partDealIndex == -1 {
+		return errors.New("User " + participant.ID + " doesn't participate in deal " + dealDocID)
+	}
+	// Move from participating to deal_results
+	user.Participating = append(user.Participating[:partDealIndex], user.Participating[partDealIndex+1:]...)
+	user.DealResults = append(user.DealResults, DealResult{
+		DealID: dealDocID,
+		Status: status,
+	})
+	err = UpdateUserDB(ctx, participant.ID, user, userTable)
+	if err != nil {
+		return fmt.Errorf("Failed to notify user %s about of %s result of deal %s", participant.ID, status, dealDocID)
+	}
+	return err
+}
+
+// JudgeDecide make a decision who won that deal (red if redWon is true)
+func (s *service) JudgeDecide(ctx context.Context, judgeID, dealDocID, winner string) error {
+	fmt.Println("Inputs: [judgeID]: ", judgeID, "[dealDocID]: ", dealDocID, "[winner]: ", winner)
+	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get deal document current pact: ", err)
+		return err
+	}
+	if dealDoc == nil {
+		return fmt.Errorf("No deal with id %s, error: %v", dealDocID, err)
+	}
+	judge, err := GetUserByIDDB(ctx, judgeID, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get judge: ", err)
+		return err
+	}
+	if judge == nil {
+		return fmt.Errorf("No judge with id %s, error: %v", judgeID, err)
+	}
+	participatingInDeal := false
+	for _, participatingDealID := range judge.JudgeProfile.Participatings {
+		if participatingDealID == dealDocID {
+			participatingInDeal = true
+			break
+		}
+	}
+	if !participatingInDeal {
+		return fmt.Errorf("Judge %s doesn't participate in deal %s", judgeID, dealDocID)
+	}
+	err = SetDealWinner(ctx, dealDocID, winner, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to set deal winner: ", err)
+	}
+	return err
 }

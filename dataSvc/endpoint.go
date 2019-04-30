@@ -264,3 +264,51 @@ func makeJudgeAcceptDealDocumentEndpoint(svc Service) endpoint.Endpoint {
 		}, err
 	}
 }
+
+func makeDealTimeoutEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.DealTimeoutReq)
+		tid := req.ReqHdr.Tid
+
+		dealDocID := req.GetDealDocumentId()
+		if len(dealDocID) == 0 {
+			err := fmt.Errorf("Empty deal document id")
+			return nil, err
+		}
+
+		err := svc.DealTimeout(ctx, dealDocID)
+
+		return pb.DealTimeoutResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}
+
+func makeJudgeDecideEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.JudgeDecideReq)
+		tid := req.ReqHdr.Tid
+
+		userID, err := grpcutils.GetUserIDFromJWT(ctx)
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+			return nil, err
+		}
+		dealDocID := req.GetDealDocumentId()
+		if len(dealDocID) == 0 {
+			return nil, fmt.Errorf("[LOG]:", "Empty deal document id")
+		}
+		// Using bool here is bad because in case of missing this prop it will automaticly be false
+		// XD
+		winner := "blue"
+		if req.GetRedWon() {
+			winner = "red"
+		}
+
+		err = svc.JudgeDecide(ctx, userID, dealDocID, winner)
+
+		return pb.JudgeDecideResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}

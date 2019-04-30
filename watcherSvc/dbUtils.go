@@ -36,24 +36,26 @@ func (d *DealDB) toMongoFormat() bson.D {
 }
 
 // Put deal to the queue and return {needToUpdateTimer}
-func PutDealToQueue(ctx context.Context, deal *DealDB, table *mongo.Collection) (needToUpdateTimer bool, err error) {
+func PutDealToQueue(ctx context.Context, deal *DealDB, table *mongo.Collection) (insertedDealId string, needToUpdateTimer bool, err error) {
 	firstDeal, err := GetFirstDeal(ctx, table)
 	if err != nil {
 		fmt.Println("Error getting first deal from mongo: ", err)
-		return false, err
+		return "", false, err
 	}
 	if firstDeal != nil {
-		needToUpdateTimer = firstDeal.Timeout.Before(deal.Timeout)
+		fmt.Println("{DEBUG} first deal from queue " + firstDeal.ID.Hex() + " timeout: " + firstDeal.Timeout.String())
+		fmt.Println("{DEBUG} Incomming deal " + firstDeal.ID.Hex() + " timeout: " + firstDeal.Timeout.String())
+		needToUpdateTimer = firstDeal.Timeout.After(deal.Timeout)
 	} else {
 		needToUpdateTimer = true
 	}
 	// Add new deal
-	_, err = table.InsertOne(ctx, deal)
+	res, err := table.InsertOne(ctx, deal)
 	if err != nil {
 		fmt.Println("Error adding new deal to the queue in mongo: ", err)
-		return false, err
+		return "", false, err
 	}
-	return needToUpdateTimer, err
+	return res.InsertedID.(primitive.ObjectID).Hex(), needToUpdateTimer, err
 }
 
 func GetFirstDeal(ctx context.Context, table *mongo.Collection) (*DealDB, error) {
@@ -66,7 +68,7 @@ func GetFirstDeal(ctx context.Context, table *mongo.Collection) (*DealDB, error)
 		if err.Error() == "mongo: no documents in result" {
 			// it's ok
 		} else {
-			fmt.Println("Error getting user from mongo: ", err)
+			fmt.Println("Error getting waiting deal mongo: ", err)
 			return nil, err
 		}
 	}
@@ -74,7 +76,7 @@ func GetFirstDeal(ctx context.Context, table *mongo.Collection) (*DealDB, error)
 		return watchingDeal, nil
 	}
 	// Get all deals is no watching deals
-	cursor, err := table.Find(ctx, bson.D{{Key: "status", Value: "RECEIVER_FROM_DATASVC"}})
+	cursor, err := table.Find(ctx, bson.D{{Key: "status", Value: "IN_QUEUE"}})
 	if err != nil {
 		fmt.Println("Error getting deals from mongo: ", err)
 		return nil, err
@@ -93,7 +95,7 @@ func GetFirstDeal(ctx context.Context, table *mongo.Collection) (*DealDB, error)
 	// Sort in the right order and get {needToUpdateTimer} value
 	if len(deals) != 0 {
 		sort.Slice(deals, func(i, j int) bool {
-			return deals[i].Timeout.Before(deals[i].Timeout)
+			return deals[i].Timeout.After(deals[i].Timeout)
 		})
 		fmt.Println("reutrn deal: ", deals[0])
 		return deals[0], nil

@@ -26,7 +26,9 @@ type grpcServer struct {
 	getDealDocument         grpctransport.Handler
 	offerDealDocument       grpctransport.Handler
 	acceptDealDocument      grpctransport.Handler
+	dealTimeout             grpctransport.Handler
 	judgeAcceptDealDocument grpctransport.Handler
+	judgeDecide             grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -116,7 +118,58 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
+		dealTimeout: grpctransport.NewServer(
+			makeDealTimeoutEndpoint(svc),
+			decodeDealTimeoutReq,
+			encodeDealTimeoutResp,
+			options...,
+		),
+		judgeDecide: grpctransport.NewServer(
+			makeJudgeDecideEndpoint(svc),
+			decodeJudgeDecideReq,
+			encodeJudgeDecideResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
 	}
+}
+
+func (s *grpcServer) JudgeDecide(ctx context.Context, req *pb.JudgeDecideReq) (*pb.JudgeDecideResp, error) {
+	_, resp, err := s.judgeDecide.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.JudgeDecideResp), nil
+}
+
+func decodeJudgeDecideReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.JudgeDecideReq)
+	return req, nil
+}
+
+func encodeJudgeDecideResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.JudgeDecideResp)
+	return &resp, nil
+}
+
+func (s *grpcServer) DealTimeout(ctx context.Context, req *pb.DealTimeoutReq) (*pb.DealTimeoutResp, error) {
+	_, resp, err := s.dealTimeout.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.DealTimeoutResp), nil
+}
+
+func decodeDealTimeoutReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.DealTimeoutReq)
+	return req, nil
+}
+
+func encodeDealTimeoutResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.DealTimeoutResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) JudgeAcceptDealDocument(ctx context.Context, req *pb.JudgeAcceptDealDocumentReq) (*pb.JudgeAcceptDealDocumentResp, error) {

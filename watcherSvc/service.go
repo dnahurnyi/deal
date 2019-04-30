@@ -15,7 +15,7 @@ import (
 type service struct {
 	envType       string
 	queueTable    *mongo.Collection
-	dataSvcClient *pb.DataServiceClient
+	dataSvcClient pb.DataServiceClient
 	dT            *DealTimer
 }
 
@@ -31,7 +31,7 @@ func NewService(ctx context.Context, logger log.Logger, mgc *mongo.Client, dataS
 	// If this service falled, run timer on the first deal on start
 	s := &service{
 		envType:       "test",
-		dataSvcClient: dataSvcClient,
+		dataSvcClient: *dataSvcClient,
 		queueTable:    mgc.Database("travel").Collection("dealWaitingQueue"),
 		dT: &DealTimer{
 			timer: nil,
@@ -46,30 +46,23 @@ func NewService(ctx context.Context, logger log.Logger, mgc *mongo.Client, dataS
 	if deal != nil {
 		fmt.Println("{DEBUG}", "Service got first deal "+deal.ID.Hex()+" from queue and will create timer for that")
 		err = UpdateStatus(ctx, deal.ID.Hex(), "WATCHING", s.queueTable)
+		fmt.Println("{DEBUG}", "Update deal "+deal.ID.Hex()+" status to WATCHING, err: ", err)
 		if err != nil {
 			fmt.Println("[LOG]:", "Failed to update deal status: ", err)
 			return nil, err
 		}
-		go s.runTimer(ctx, deal.Timeout, deal.ID.Hex())
+		go s.runTimer(deal.Timeout, deal.ID.Hex())
 	}
 	return s, nil
 }
 
-func isClosed(ch <-chan bool) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-	}
-
-	return false
-}
-
-func (s *service) runTimer(ctx context.Context, timeout time.Time, dealQueueID string) {
+func (s *service) runTimer(timeout time.Time, dealQueueID string) {
+	ctx := context.Background()
 	// Check if another goroutine running timer
-	if s.dT.turnOffTimer != nil && !isClosed(s.dT.turnOffTimer) {
+	if s.dT.turnOffTimer != nil {
 		if len(s.dT.currentDeal) != 0 {
-			err := UpdateStatus(ctx, s.dT.currentDeal, "BACK_TO_QUEUE", s.queueTable)
+			err := UpdateStatus(ctx, s.dT.currentDeal, "IN_QUEUE", s.queueTable)
+			fmt.Println("{DEBUG}", "Update deal "+s.dT.currentDeal+" status to BACK_TO_QUEUE, err: ", err)
 			if err != nil {
 				// Normal case
 				fmt.Println("[LOG]:", "Failed to update deal status: ", err)
@@ -79,6 +72,7 @@ func (s *service) runTimer(ctx context.Context, timeout time.Time, dealQueueID s
 		fmt.Println("{DEBUG}", "Service closed timer")
 		// If another goroutine running timer, close it
 		close(s.dT.turnOffTimer)
+		s.dT.turnOffTimer = nil
 	}
 	s.dT.turnOffTimer = make(chan bool)
 	s.dT.timer = time.NewTimer(time.Until(timeout))
@@ -92,6 +86,7 @@ func (s *service) runTimer(ctx context.Context, timeout time.Time, dealQueueID s
 		defer s.dT.m.Unlock()
 		// Since this goroutine will be closed, {turnOffTimer} is not more possible to use
 		close(s.dT.turnOffTimer)
+		s.dT.turnOffTimer = nil
 		// Get first deal from DB
 		deal, err := GetFirstDeal(ctx, s.queueTable)
 		if err != nil {
@@ -106,17 +101,30 @@ func (s *service) runTimer(ctx context.Context, timeout time.Time, dealQueueID s
 		fmt.Println("{DEBUG}", "Get first deal on timer expire: ", deal.ID.Hex())
 		fmt.Println("{DEBUG}", "Deal timeout: ", deal.Timeout)
 		fmt.Println("{DEBUG}", "Timer timeout: ", timeout)
-		if deal.Timeout == timeout {
+		fmt.Println("{DEBUG}", "IDs compare: ", deal.ID.Hex(), " vs current: ", s.dT.currentDeal)
+		if deal.ID.Hex() == s.dT.currentDeal {
 			fmt.Println("[LOG]:", "Deal "+deal.DealID+" timeout happened")
 			// Call dataSvc to update deal status
 			// In another case this timer is obsolete
 			// Start new timer:
 			//--Update last deal status
 			err = UpdateStatus(ctx, deal.ID.Hex(), "PROCESSED", s.queueTable)
+			fmt.Println("{DEBUG}", "Update deal "+deal.ID.Hex()+" status to PROCESSED, err: ", err)
 			if err != nil {
 				// Normal case
 				fmt.Println("[LOG]:", "Failed to update deal status: ", err)
 				return
+			}
+			_, err = s.dataSvcClient.DealTimeout(ctx, &pb.DealTimeoutReq{
+				ReqHdr: &pb.ReqHdr{
+					Tid: "Some transaction ID",
+				},
+				DealDocumentId: deal.DealID,
+			})
+			fmt.Println("{DEBUG}", "Send deal "+deal.ID.Hex()+" timeout signal")
+			if err != nil {
+				// We don't care, we just have to notify
+				fmt.Println("[LOG]", "Send deal "+deal.ID.Hex()+" timeout signal failed, err: ", err)
 			}
 		}
 		//--Create timer for the new one
@@ -128,11 +136,13 @@ func (s *service) runTimer(ctx context.Context, timeout time.Time, dealQueueID s
 		if deal != nil {
 			fmt.Println("[LOG]:", "Create timer for the next deal")
 			err = UpdateStatus(ctx, deal.ID.Hex(), "WATCHING", s.queueTable)
+			fmt.Println("{DEBUG}", "Update deal "+deal.ID.Hex()+" status to WATCHING, err: ", err)
+
 			if err != nil {
 				fmt.Println("[LOG]:", "Failed to update deal status: ", err)
 				return
 			}
-			go s.runTimer(ctx, deal.Timeout, deal.ID.Hex())
+			go s.runTimer(deal.Timeout, deal.ID.Hex())
 		} else {
 			fmt.Println("[LOG]:", "No deals left in queue")
 		}
@@ -157,9 +167,9 @@ func (s *service) HoldAndWatch(ctx context.Context, dealID, timeoutStr string) e
 	deal := &DealDB{
 		DealID:  dealID,
 		Timeout: timeout,
-		Status:  "RECEIVER_FROM_DATASVC",
+		Status:  "IN_QUEUE",
 	}
-	updateTimer, err := PutDealToQueue(ctx, deal, s.queueTable)
+	dealQueueID, updateTimer, err := PutDealToQueue(ctx, deal, s.queueTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to add deal "+dealID+" to the queue: ", err)
 		return err
@@ -167,12 +177,13 @@ func (s *service) HoldAndWatch(ctx context.Context, dealID, timeoutStr string) e
 	fmt.Println("{DEBUG}", "Deal placed in queue, need to update timer: ", updateTimer)
 	if updateTimer {
 		fmt.Println("{DEBUG}", "Update timer with timeout: ", deal.Timeout)
-		err = UpdateStatus(ctx, deal.ID.Hex(), "WATCHING", s.queueTable)
+		err = UpdateStatus(ctx, dealQueueID, "WATCHING", s.queueTable)
+		fmt.Println("{DEBUG}", "Update deal "+dealQueueID+" status to WATCHING, err: ", err)
 		if err != nil {
 			fmt.Println("[LOG]:", "Failed to update deal status: ", err)
 			return err
 		}
-		go s.runTimer(ctx, deal.Timeout, deal.ID.Hex())
+		go s.runTimer(deal.Timeout, dealQueueID)
 	}
 	return nil
 }

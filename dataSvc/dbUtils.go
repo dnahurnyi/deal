@@ -4,12 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
 	"github.com/mongodb/mongo-go-driver/bson"
 	"github.com/mongodb/mongo-go-driver/bson/primitive"
 	"github.com/mongodb/mongo-go-driver/mongo"
 )
+
+type DealResult struct {
+	DealID string `bson:"deal_id,omitempty"`
+	Status string `bson:"status,omitempty"` // Can be: "won", "losed", "expired"
+}
 
 type UserDB struct {
 	Name          string             `bson:"name,omitempty"`
@@ -20,6 +26,7 @@ type UserDB struct {
 	Offerings     []string           `bson:"offerings"`
 	Accepted      []string           `bson:"accepted"`
 	Participating []string           `bson:"participating"`
+	DealResults   []DealResult       `bson:"deal_results"`
 	IsJudge       bool               `bson:"is_judge"`
 	JudgeProfile  *JudgeProfile      `bson:"judge_profile"`
 }
@@ -51,13 +58,20 @@ type PactDB struct {
 	Version string `bson:"version,omitempty"`
 }
 
+// Status is an object of Status that stores in the DB
+type Status struct {
+	Name string    `bson:"name"`
+	Time time.Time `bson:"time,omitempty"`
+}
+
 // DealDocumentDB is an object of dealDocument(set of pacts) that stores in the DB
 type DealDocumentDB struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty"`
 	Pacts        []PactDB           `bson:"pacts,omitempty"`
 	FinalVersion string             `bson:"final_version,omitempty"`
 	Judge        SideDB             `bson:"judge,omitempty"`
-	Status       string             `bson:"status,omitempty"`
+	Status       []Status           `bson:"status,omitempty"`
+	Winner       string             `bson:"winner,omitempty"`
 }
 
 func (dealDoc DealDocumentDB) getCurrentPact() (PactDB, error) {
@@ -67,6 +81,17 @@ func (dealDoc DealDocumentDB) getCurrentPact() (PactDB, error) {
 		}
 	}
 	return PactDB{}, fmt.Errorf("Deal doesn't have pact for version %s", dealDoc.FinalVersion)
+}
+
+func (dealDoc DealDocumentDB) getStatus() (string, error) {
+	if len(dealDoc.Status) == 0 {
+		return "", errors.New("Status is empty")
+	}
+	statusOb := dealDoc.Status[len(dealDoc.Status)-1]
+	if len(statusOb.Name) == 0 {
+		return "", errors.New("Last status is invalid")
+	}
+	return statusOb.Name, nil
 }
 
 // ConvertUserToDB converts user from pb.User type to UserDB type
@@ -155,6 +180,9 @@ func (dd *DealDocumentDB) toMongoFormat() bson.D {
 	if len(dd.Status) > 0 {
 		es = append(es, bson.E{Key: "status", Value: dd.Status})
 	}
+	if len(dd.Winner) > 0 {
+		es = append(es, bson.E{Key: "winner", Value: dd.Winner})
+	}
 	return es
 }
 
@@ -242,8 +270,13 @@ func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo
 	dealDocumentRes := &pb.DealDocument{
 		Id:           dealDocDB.ID.Hex(),
 		FinalVersion: dealDocDB.FinalVersion,
-		Status:       dealDocDB.Status,
+		Winner:       dealDocDB.Winner,
 	}
+	status, err := dealDocDB.getStatus()
+	if err != nil {
+		return nil, err
+	}
+	dealDocumentRes.Status = status
 	if len(dealDocDB.Judge.Participants) != 0 {
 		participants := []*pb.Participant{}
 		for _, judgeParticipant := range dealDocDB.Judge.Participants {
@@ -592,9 +625,45 @@ func UpdateDealStatus(ctx context.Context, dealDocID string, status string, deal
 		fmt.Println("Error creating object id to get deal document: ", err)
 		return err
 	}
+	deal, err := GetDealDocByIdDB(ctx, dealDocID, dealDocTable)
+	if err != nil {
+		fmt.Println("Failed to get deal "+dealDocID+": ", err)
+		return err
+	}
+	deal.Status = append(deal.Status, Status{
+		Name: status,
+		Time: time.Now(),
+	})
 	_, err = dealDocTable.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: dealDocIDDB}},
-		bson.D{{"$set", []bson.E{bson.E{Key: "status", Value: status}}}},
+		bson.D{{"$set", []bson.E{bson.E{Key: "status", Value: deal.Status}}}},
+	)
+	return err
+}
+
+// SetDealWinner sets deal {dealDocID} winner and updates it's status to WINNER_SET
+func SetDealWinner(ctx context.Context, dealDocID, winner string, dealDocTable *mongo.Collection) error {
+	// Get deal document
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
+	if err != nil {
+		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+	deal, err := GetDealDocByIdDB(ctx, dealDocID, dealDocTable)
+	if err != nil {
+		fmt.Println("Failed to get deal "+dealDocID+": ", err)
+		return err
+	}
+	deal.Status = append(deal.Status, Status{
+		Name: "WINNER_SET",
+		Time: time.Now(),
+	})
+	_, err = dealDocTable.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDocIDDB}},
+		bson.D{{"$set", []bson.E{
+			bson.E{Key: "status", Value: deal.Status},
+			bson.E{Key: "winner", Value: winner},
+		}}},
 	)
 	return err
 }
