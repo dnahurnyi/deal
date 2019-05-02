@@ -78,6 +78,7 @@ type DealDocumentDB struct {
 	Status       []Status           `bson:"status,omitempty"`
 	Winner       string             `bson:"winner,omitempty"`
 	Blamed       string             `bson:"blamed,omitempty"`
+	BlameID      string             `bson:"blame_id,omitempty"`
 	Type         string             `bson:"type,omitempty"`
 	Completed    bool               `bson:"completed,omitempty"` // For now deal will be completed only when judge made his decision
 	JusticeCount int                `bson:"justice_count,omitempty"`
@@ -353,6 +354,9 @@ func (dd *DealDocumentDB) toMongoFormat() bson.D {
 	}
 	if len(dd.Blamed) > 0 {
 		es = append(es, bson.E{Key: "blamed", Value: dd.Blamed})
+	}
+	if len(dd.BlameID) > 0 {
+		es = append(es, bson.E{Key: "blame_id", Value: dd.BlameID})
 	}
 	if len(dd.Type) > 0 {
 		es = append(es, bson.E{Key: "type", Value: dd.Type})
@@ -886,6 +890,7 @@ func UpdateDeal(ctx context.Context, dealDoc DealDocumentDB, dealDocTable *mongo
 		fmt.Println("Failed to get deal "+dealDoc.ID.Hex()+", error: ", err)
 		return err
 	}
+	fmt.Printf("Trying to update deal to blamed status %s and blameID %s\n", dealDoc.Blamed, dealDoc.BlameID)
 	_, err = dealDocTable.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: dealDoc.ID}},
 		bson.D{{"$set", dealDoc.toMongoFormat()}},

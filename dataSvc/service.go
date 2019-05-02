@@ -189,6 +189,7 @@ func (s *service) CreateBlameDocument(ctx context.Context, userID, blamedDealID,
 	userDB.DealDocs = append(userDB.DealDocs, blameDocID)
 	// This is irreversible so once you created it, you participate in it
 	userDB.Participating = append(userDB.Participating, blameDocID)
+	userDB.JudgeProfile.Participatings = append(userDB.JudgeProfile.Participatings, blameDocID)
 
 	err = UpdateUserDB(ctx, userID, userDB, s.userTable)
 	if err != nil {
@@ -329,6 +330,7 @@ func createInitBlameDocument(redUserID, blamedDealID, content, docType string, j
 		Pacts:        []PactDB{firstPact},
 		FinalVersion: firstPact.Version,
 		JusticeCount: justiceCount,
+		Winner:       "red",
 		Judge: SideDB{
 			Type: pb.SideType_JUDGE,
 			Participants: []ParticipantDB{
@@ -817,11 +819,7 @@ func (s *service) JoinBlame(ctx context.Context, userID, blameID string) error {
 	}
 	// Update user
 	userDB.Participating = append(userDB.Participating, blameID)
-	userDB.JudgeProfile.Decisions = append(userDB.JudgeProfile.Decisions, Decision{
-		DealID: blameID,
-		Winner: "Blame",
-		When:   time.Now().String(),
-	})
+	userDB.JudgeProfile.Participatings = append(userDB.JudgeProfile.Participatings, blameID)
 
 	err = UpdateUserDB(ctx, userID, userDB, s.userTable)
 	if err != nil {
@@ -875,37 +873,88 @@ func (s *service) ActivateBlame(ctx context.Context, judgeID, blameID string) er
 	blameDoc.Blamed = "No"
 	err = UpdateDeal(ctx, *blameDoc, s.dealDocTable)
 	if err != nil {
-		return fmt.Errorf("Failed to activate blamed deal document %s, err: %v", blamedDealID, err)
+		return fmt.Errorf("Failed to activate blame document %s, err: %v", blameDoc.ID.Hex(), err)
 	}
+
 	// Reverse status of blamed deals (that can be chain of documents like BLAME -> BLAME -> ... -> COMMON)
-	err = s.blameDeal(ctx, *blamedDealDoc)
+
+	lastBlameID := blamedDealDoc.BlameID
+	if len(lastBlameID) == 0 {
+		lastBlameID = blamedDealDoc.ID.Hex()
+		// This deal blamed first time so need to reverse only it's {blamed}
+	}
+	err = s.blameDeal(ctx, lastBlameID, blameDoc.ID.Hex(), blameDoc.JusticeCount)
 	if err != nil {
 		return fmt.Errorf("Failed blame chain of documents starting from document %s, err: %v", blamedDealDoc.ID.Hex(), err)
 	}
+
+	// Update user deal states
+	for _, j := range blameDoc.Judge.Participants {
+		participant, err := GetUserByIDDB(ctx, j.ID, s.userTable)
+		if err != nil {
+			return fmt.Errorf("Failed to get participant %s from blame %s, err: %v", j.ID, blamedDealID, err)
+		}
+		for i, d := range participant.Participating {
+			if d == blameDoc.ID.Hex() {
+				participant.Participating = append(participant.Participating[:i], participant.Participating[i+1:]...)
+				participant.DealResults = append(participant.DealResults, d)
+				break
+			}
+		}
+		judgeProfile := *participant.JudgeProfile
+		for i, d := range judgeProfile.Participatings {
+			if d == blameDoc.ID.Hex() {
+				judgeProfile.Participatings = append(judgeProfile.Participatings[:i], judgeProfile.Participatings[i+1:]...)
+				judgeProfile.Decisions = append(judgeProfile.Decisions, Decision{
+					DealID: blameDoc.ID.Hex(),
+					Winner: "Me",
+					When:   time.Now().String(),
+				})
+				break
+			}
+		}
+		participant.JudgeProfile = &judgeProfile
+		err = UpdateUserDB(ctx, participant.ID.Hex(), participant, s.userTable)
+		if err != nil {
+			return fmt.Errorf("Failed to chnage statuses of blame deal %s for user %s, err: %v", blamedDealID, participant.ID.Hex(), err)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("Failed to get blame participants %s, err: %v", blamedDealID, err)
+	}
+
 	return nil
 }
 
-func (s *service) blameDeal(ctx context.Context, deal DealDocumentDB) error {
-	// If you want to blame simple dealm=, just chnage status and uodate it
+func (s *service) blameDeal(ctx context.Context, dealID, blameID string, justiceCount int) error {
+	deal, err := GetDealDocByIdDB(ctx, dealID, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get deal %s to blame, err: %v", dealID, err)
+	}
+	if deal == nil {
+		return fmt.Errorf("Invalid data, deal %s doesn't exist, blame chain corrupted, critical error", dealID)
+	}
+	// If you want to blame simple deal, just change status and update it
 	switch deal.Type {
 	case "COMMON":
 		// We reverse, so it the deal was blamed, we have to reverse it (by blaming the blame)
 		if deal.Blamed == "Yes" {
 			deal.Blamed = "No"
-		}
-		if deal.Blamed == "No" {
+		} else if deal.Blamed == "No" {
 			deal.Blamed = "Yes"
 		}
-		return UpdateDeal(ctx, deal, s.dealDocTable)
+		deal.JusticeCount = justiceCount
+		deal.BlameID = blameID
+		return UpdateDeal(ctx, *deal, s.dealDocTable)
 	// To bale the "BLAME" you have to do that recursively
 	case "BLAME":
 		if deal.Blamed == "Yes" {
 			deal.Blamed = "No"
+		} else if deal.Blamed == "No" {
+			deal.Blamed = "Yes"
 		}
-		if deal.Blamed == "Yes" {
-			deal.Blamed = "No"
-		}
-		err := UpdateDeal(ctx, deal, s.dealDocTable)
+		fmt.Println("{BLAME}: ", "Blame deal "+dealID+" to blamed "+deal.Blamed)
+		err := UpdateDeal(ctx, *deal, s.dealDocTable)
 		if err != nil {
 			fmt.Errorf("Failed to update deal document %s, err: %v", deal.ID.Hex(), err)
 		}
@@ -915,11 +964,7 @@ func (s *service) blameDeal(ctx context.Context, deal DealDocumentDB) error {
 				blamedDealID = p.Blue.Participants[0].ID
 			}
 		}
-		blamedDealDoc, err := GetDealDocByIdDB(ctx, blamedDealID, s.dealDocTable)
-		if err != nil {
-			return fmt.Errorf("Failed to get blamed deal document %s, err: %v", blamedDealID, err)
-		}
-		return s.blameDeal(ctx, *blamedDealDoc)
+		return s.blameDeal(ctx, blamedDealID, blameID, justiceCount)
 	default:
 		return fmt.Errorf("Can't blame deal %s, with unknown type: %v", deal.ID.Hex(), deal.Type)
 	}
