@@ -22,7 +22,7 @@ spec:
     spec:
       containers:
       - name: datasvc
-        image: n826/travel:datasvc-v32
+        image: n826/travel:datasvc-v64
         ports:
         - containerPort: 8010
           name: grpc-port

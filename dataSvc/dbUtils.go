@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	pb "github.com/DenysNahurnyi/deal/pb/generated/pb"
@@ -11,11 +12,6 @@ import (
 	"github.com/mongodb/mongo-go-driver/bson/primitive"
 	"github.com/mongodb/mongo-go-driver/mongo"
 )
-
-type DealResult struct {
-	DealID string `bson:"deal_id,omitempty"`
-	Status string `bson:"status,omitempty"` // Can be: "won", "losed", "expired"
-}
 
 type UserDB struct {
 	Name          string             `bson:"name,omitempty"`
@@ -26,15 +22,23 @@ type UserDB struct {
 	Offerings     []string           `bson:"offerings"`
 	Accepted      []string           `bson:"accepted"`
 	Participating []string           `bson:"participating"`
-	DealResults   []DealResult       `bson:"deal_results"`
+	DealResults   []string           `bson:"deal_results"`
 	IsJudge       bool               `bson:"is_judge"`
 	JudgeProfile  *JudgeProfile      `bson:"judge_profile"`
 }
 
 // JudgeProfile is an object judge profile the stores in the DB
 type JudgeProfile struct {
-	Propositions   []string `bson:"propositions"`
-	Participatings []string `bson:"participatings"`
+	Propositions   []string   `bson:"propositions"`
+	Participatings []string   `bson:"participatings"`
+	Decisions      []Decision `bson:"decisions"`
+}
+
+// Decision is an object that contains info about judge decision
+type Decision struct {
+	DealID string `bson:"deal_id"`
+	Winner string `bson:"winner"`
+	When   string `bson:"when"`
 }
 
 // ParticipantDB is an object of participant that stores in the DB
@@ -65,6 +69,7 @@ type Status struct {
 }
 
 // DealDocumentDB is an object of dealDocument(set of pacts) that stores in the DB
+// Strings used instead bools to avoid default values confusion
 type DealDocumentDB struct {
 	ID           primitive.ObjectID `bson:"_id,omitempty"`
 	Pacts        []PactDB           `bson:"pacts,omitempty"`
@@ -72,6 +77,10 @@ type DealDocumentDB struct {
 	Judge        SideDB             `bson:"judge,omitempty"`
 	Status       []Status           `bson:"status,omitempty"`
 	Winner       string             `bson:"winner,omitempty"`
+	Blamed       string             `bson:"blamed,omitempty"`
+	Type         string             `bson:"type,omitempty"`
+	Completed    bool               `bson:"completed,omitempty"` // For now deal will be completed only when judge made his decision
+	JusticeCount int                `bson:"justice_count,omitempty"`
 }
 
 func (dealDoc DealDocumentDB) getCurrentPact() (PactDB, error) {
@@ -94,6 +103,138 @@ func (dealDoc DealDocumentDB) getStatus() (string, error) {
 	return statusOb.Name, nil
 }
 
+// getSuccess counts success over all completed deals since their state can change
+func (user UserDB) getSuccess(ctx context.Context, dealTable *mongo.Collection) (int, error) {
+	// Go over all deals from deals_result, take each and get result from it
+	var success int
+	for _, dID := range user.DealResults {
+		dealSuccess, err := getUserSuccess(ctx, user.ID.Hex(), dID, dealTable)
+		if err != nil {
+			return 0, err
+		}
+		success += dealSuccess
+	}
+	fmt.Println("[Rating]: To count success for user " + user.ID.Hex() + " used " + strconv.Itoa(len(user.DealResults)) + " deals. Result: " + strconv.Itoa(success))
+	return success, nil
+}
+
+// getUserSuccess returns 2 or -2 points depending on what state of deal and status of blaming
+func getUserSuccess(ctx context.Context, userID, dealID string, dealTable *mongo.Collection) (int, error) {
+	deal, err := GetDealDocByIdDB(ctx, dealID, dealTable)
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get deal %s from DB, err: %v", dealID, err)
+	}
+	if deal == nil {
+		return 0, fmt.Errorf("Invalid operation, deal %s doesn't exist or not completed yet, err: %v", dealID, err)
+	}
+	// No need to count it yet
+	if !deal.Completed {
+		return 0, nil
+	}
+	pact, err := deal.getCurrentPact()
+	if err != nil {
+		return 0, fmt.Errorf("Failed to get pact from deal %s, err: %v", dealID, err)
+	}
+	isRed, isUnknown := 1, true
+	for _, rP := range pact.Red.Participants {
+		if rP.ID == userID {
+			isRed = 1
+			isUnknown = false
+			break
+		}
+	}
+	// We can't be sure user has this deal, we need to check it for sure
+	if isUnknown {
+		for _, bP := range pact.Blue.Participants {
+			if bP.ID == userID {
+				isRed = -1
+				isUnknown = false
+				break
+			}
+		}
+	}
+	// It user still unknown
+	if isUnknown {
+		return 0, fmt.Errorf("User %s side can't be found in deal %s", userID, dealID)
+	}
+	var redWon int
+	if deal.Winner == "red" {
+		redWon = 1
+	}
+	if deal.Winner == "blue" {
+		redWon = -1
+	}
+	if !(redWon == 1 || redWon == -1) {
+		return 0, fmt.Errorf("Failed to get deal %s winner correctly, deal winner: %s", dealID, deal.Winner)
+	}
+
+	var notBlamed int
+	if deal.Blamed == "No" {
+		notBlamed = 1
+	}
+	if deal.Blamed == "Yes" {
+		notBlamed = -1
+	}
+	if !(notBlamed == 1 || notBlamed == -1) {
+		return 0, fmt.Errorf("Failed to get deal blame status correctly, deal blame status: %s", deal.Blamed)
+	}
+
+	// formula: {sideRed(1 or -1)} * {redWon(1 or -1)} * 2 points * -{blamed(1 or -1)}
+	return redWon * isRed * notBlamed * 2, nil
+}
+
+// getSuccess counts justice over all completed deals since their state can change
+func (user UserDB) getJustice(ctx context.Context, dealTable *mongo.Collection) (int, error) {
+	// Go over all deals from deals_result, take each and get result from it
+	justice := 0
+	if user.JudgeProfile == nil || !user.IsJudge {
+		return 0, errors.New("Can't count justice of common user")
+	}
+	deals, err := GetCompletedDeals(ctx, dealTable)
+	if err != nil {
+		return 0, fmt.Errorf("Can't get completed deals from DB")
+	}
+	for _, decision := range user.JudgeProfile.Decisions {
+		for _, completedDeal := range deals {
+			if decision.DealID == completedDeal.ID.Hex() {
+				dealJustice, err := getJudgeJustice(ctx, user.ID.Hex(), *completedDeal)
+				if err != nil {
+					return 0, err
+				}
+				justice += dealJustice
+			}
+		}
+	}
+	return justice, nil
+}
+
+// getJudgeJustice takes current status of deal and compares it with judge decision, return 2 or -4 points
+func getJudgeJustice(ctx context.Context, judgeID string, deal DealDocumentDB) (int, error) {
+	participating := false
+	for _, j := range deal.Judge.Participants {
+		if judgeID == j.ID {
+			participating = true
+			break
+		}
+	}
+	if !participating {
+		return 0, fmt.Errorf("Confusion, judge %s don't participate in deal %s", judgeID, deal.ID.Hex())
+	}
+	// TODO: we don't care about judge own decision because for now only one judge is possible. So judge decision is
+	// the winner set in the deal. Once we have many judges we have to compare judge decision and deal winner
+	justiceBonus := 0
+	if deal.Blamed == "Yes" {
+		justiceBonus = -4
+	}
+	if deal.Blamed == "No" {
+		justiceBonus = 2
+	}
+	if justiceBonus == 0 {
+		return 0, fmt.Errorf("Invalid data, can't get blame status in deal %s", deal.ID.Hex())
+	}
+	return justiceBonus, nil
+}
+
 // ConvertUserToDB converts user from pb.User type to UserDB type
 func ConvertUserToDB(user *pb.User) (*UserDB, error) {
 	if user == nil {
@@ -107,6 +248,7 @@ func ConvertUserToDB(user *pb.User) (*UserDB, error) {
 		Accepted:      user.GetAccepted(),
 		Offerings:     user.GetOfferings(),
 		Participating: user.GetParticipating(),
+		IsJudge:       user.GetIsJudge(),
 	}
 	if len(user.GetId()) > 0 {
 		userID, err := primitive.ObjectIDFromHex(user.GetId())
@@ -114,6 +256,20 @@ func ConvertUserToDB(user *pb.User) (*UserDB, error) {
 			return nil, fmt.Errorf("Invalid user, bad id %q", user.GetId())
 		}
 		userResp.ID = userID
+	}
+	if user.GetJudgeProfile() != nil {
+		judgeProfile := user.GetJudgeProfile()
+		userResp.JudgeProfile = &JudgeProfile{
+			Propositions:   judgeProfile.GetPropositions(),
+			Participatings: judgeProfile.GetParticipatings(),
+		}
+		for _, d := range judgeProfile.GetDecisions() {
+			userResp.JudgeProfile.Decisions = append(userResp.JudgeProfile.Decisions, Decision{
+				DealID: d.GetDealId(),
+				Winner: d.GetWinner(),
+				When:   d.GetWhen(),
+			})
+		}
 	}
 
 	return userResp, nil
@@ -140,6 +296,16 @@ func ConvertDBToUser(user *UserDB) (*pb.User, error) {
 			Propositions:   user.JudgeProfile.Propositions,
 			Participatings: user.JudgeProfile.Participatings,
 		}
+		for _, d := range user.JudgeProfile.Decisions {
+			userResp.JudgeProfile.Decisions = append(userResp.JudgeProfile.Decisions, &pb.Decision{
+				DealId: d.DealID,
+				Winner: d.Winner,
+				When:   d.When,
+			})
+		}
+	}
+	for _, dID := range user.DealResults {
+		userResp.DealResults = append(userResp.DealResults, dID)
 	}
 	return userResp, nil
 }
@@ -159,9 +325,11 @@ func (u *UserDB) toMongoFormat() bson.D {
 	es = append(es, bson.E{Key: "offerings", Value: u.Offerings})
 	es = append(es, bson.E{Key: "accepted", Value: u.Accepted})
 	es = append(es, bson.E{Key: "participating", Value: u.Participating})
+	es = append(es, bson.E{Key: "deal_results", Value: u.DealResults})
 	if u.JudgeProfile != nil {
 		es = append(es, bson.E{Key: "judge_profile.participatings", Value: u.JudgeProfile.Participatings})
 		es = append(es, bson.E{Key: "judge_profile.propositions", Value: u.JudgeProfile.Propositions})
+		es = append(es, bson.E{Key: "judge_profile.decisions", Value: u.JudgeProfile.Decisions})
 	}
 	return es
 }
@@ -183,6 +351,14 @@ func (dd *DealDocumentDB) toMongoFormat() bson.D {
 	if len(dd.Winner) > 0 {
 		es = append(es, bson.E{Key: "winner", Value: dd.Winner})
 	}
+	if len(dd.Blamed) > 0 {
+		es = append(es, bson.E{Key: "blamed", Value: dd.Blamed})
+	}
+	if len(dd.Type) > 0 {
+		es = append(es, bson.E{Key: "type", Value: dd.Type})
+	}
+	es = append(es, bson.E{Key: "completed", Value: dd.Completed})
+	es = append(es, bson.E{Key: "justice_count", Value: dd.JusticeCount})
 	return es
 }
 
@@ -261,6 +437,27 @@ func GetDealDocByIdDB(ctx context.Context, dealDocID string, table *mongo.Collec
 	return dealDocDB, err
 }
 
+func GetCompletedDeals(ctx context.Context, table *mongo.Collection) ([]*DealDocumentDB, error) {
+	// Get all deals is no watching deals
+	cursor, err := table.Find(ctx, bson.D{{Key: "completed", Value: true}})
+	if err != nil {
+		fmt.Println("Error getting deals from DB: ", err)
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	deals := make([]*DealDocumentDB, 0)
+	for cursor.Next(ctx) {
+		d := &DealDocumentDB{}
+		if err := cursor.Decode(d); err != nil {
+			fmt.Println("Error getting deals from DB: ", err)
+			return nil, err
+		}
+		deals = append(deals, d)
+	}
+	return deals, err
+}
+
 func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo.Collection) (*pb.DealDocument, error) {
 	dealDocDB, err := GetDealDocByIdDB(ctx, dealDocID, table)
 	if err != nil {
@@ -271,6 +468,9 @@ func GetDealDocByIdDBConvert(ctx context.Context, dealDocID string, table *mongo
 		Id:           dealDocDB.ID.Hex(),
 		FinalVersion: dealDocDB.FinalVersion,
 		Winner:       dealDocDB.Winner,
+		Blamed:       dealDocDB.Blamed,
+		JusticeCount: int64(dealDocDB.JusticeCount),
+		Type:         dealDocDB.Type,
 	}
 	status, err := dealDocDB.getStatus()
 	if err != nil {
@@ -617,6 +817,43 @@ func CheckToWatchDeal(ctx context.Context, dealDocID string, dealDocTable *mongo
 	return isDealDocAcceptedByUsers, err
 }
 
+// JudgeAcceptDeal sets judge (only one possible) to the deal judge and update deal status
+func JudgeAcceptDeal(ctx context.Context, judgeID, dealID string, dealDocTable *mongo.Collection) error {
+	// Get deal document
+	dealDocIDDB, err := primitive.ObjectIDFromHex(dealID)
+	if err != nil {
+		fmt.Println("Error creating object id to get deal document: ", err)
+		return err
+	}
+	deal, err := GetDealDocByIdDB(ctx, dealID, dealDocTable)
+	if err != nil {
+		fmt.Println("Failed to get deal "+dealID+": ", err)
+		return err
+	}
+	deal.Judge = SideDB{
+		Type: pb.SideType_JUDGE,
+		Participants: []ParticipantDB{
+			ParticipantDB{
+				ID:       judgeID,
+				Accepted: true,
+			},
+		},
+	}
+	_, err = dealDocTable.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDocIDDB}},
+		bson.D{{"$set", deal.toMongoFormat()}},
+	)
+	if err != nil {
+		return fmt.Errorf("Failed to update deal %s judge %s, err: %v", dealID, judgeID, err)
+	}
+	err = UpdateDealStatus(ctx, dealID, "ALL_ACCEPTED", dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to update deal "+dealID+" status: ", err)
+		return err
+	}
+	return err
+}
+
 // UpdateDealStatus updates deal document `dealDocID` status to `status`
 func UpdateDealStatus(ctx context.Context, dealDocID string, status string, dealDocTable *mongo.Collection) error {
 	// Get deal document
@@ -641,8 +878,51 @@ func UpdateDealStatus(ctx context.Context, dealDocID string, status string, deal
 	return err
 }
 
+// UpdateDeal updates deal document `dealDocID`
+func UpdateDeal(ctx context.Context, dealDoc DealDocumentDB, dealDocTable *mongo.Collection) error {
+	// Get deal document
+	_, err := GetDealDocByIdDB(ctx, dealDoc.ID.Hex(), dealDocTable)
+	if err != nil {
+		fmt.Println("Failed to get deal "+dealDoc.ID.Hex()+", error: ", err)
+		return err
+	}
+	_, err = dealDocTable.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: dealDoc.ID}},
+		bson.D{{"$set", dealDoc.toMongoFormat()}},
+	)
+	return err
+}
+
+// MakeDecision appends to judge decisions deal {dealDocID} with winner and removes deal {dealDocID} from {participatings}
+func MakeDecision(ctx context.Context, judge *UserDB, dealDocID, winner string, userTable *mongo.Collection) error {
+	// Get deal document
+	dealIndex := -1
+
+	for i, d := range judge.JudgeProfile.Participatings {
+		if d == dealDocID {
+			dealIndex = i
+			break
+		}
+	}
+	if dealIndex == -1 {
+		fmt.Println("{DEBUG}", "Judge "+judge.ID.Hex()+" doesn't participate in "+dealDocID+" deal")
+		return errors.New("Judge " + judge.ID.Hex() + " doesn't participate in " + dealDocID + " deal")
+	}
+	judge.JudgeProfile.Decisions = append(judge.JudgeProfile.Decisions, Decision{
+		DealID: dealDocID,
+		Winner: winner,
+		When:   time.Now().String(),
+	})
+	judge.JudgeProfile.Participatings = append(judge.JudgeProfile.Participatings[:dealIndex], judge.JudgeProfile.Participatings[dealIndex+1:]...)
+	_, err := userTable.UpdateOne(ctx,
+		bson.D{{Key: "_id", Value: judge.ID}},
+		bson.D{{"$set", judge.toMongoFormat()}},
+	)
+	return err
+}
+
 // SetDealWinner sets deal {dealDocID} winner and updates it's status to WINNER_SET
-func SetDealWinner(ctx context.Context, dealDocID, winner string, dealDocTable *mongo.Collection) error {
+func SetDealWinner(ctx context.Context, dealDocID, winner string, dealDocTable, userTable *mongo.Collection) error {
 	// Get deal document
 	dealDocIDDB, err := primitive.ObjectIDFromHex(dealDocID)
 	if err != nil {
@@ -654,16 +934,36 @@ func SetDealWinner(ctx context.Context, dealDocID, winner string, dealDocTable *
 		fmt.Println("Failed to get deal "+dealDocID+": ", err)
 		return err
 	}
+	if deal.Completed {
+		return fmt.Errorf("Deal %s already completed, can't change decision", dealDocID)
+	}
 	deal.Status = append(deal.Status, Status{
 		Name: "WINNER_SET",
 		Time: time.Now(),
 	})
+	deal.Blamed = "No"
+	deal.Winner = winner
+	deal.Completed = true
+	// Get judge(judges in future), count their justice and set justiceCount for this deal to know how much justice need to blame it
+	if len(deal.Judge.Participants) == 0 {
+		return fmt.Errorf("Invalid data in the deal %s, no judges", dealDocID)
+	}
+	judgeID := deal.Judge.Participants[0].ID
+	if len(judgeID) == 0 {
+		return fmt.Errorf("Invalid data in the deal %s, judge id can't be empty", dealDocID)
+	}
+	judge, err := GetUserByIDDB(ctx, judgeID, userTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get judge %s from DB, err: %v", judgeID, err)
+	}
+	justiceCount, err := judge.getJustice(ctx, dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get judge %s justice count, err: %v", judgeID, err)
+	}
+	deal.JusticeCount = justiceCount
 	_, err = dealDocTable.UpdateOne(ctx,
 		bson.D{{Key: "_id", Value: dealDocIDDB}},
-		bson.D{{"$set", []bson.E{
-			bson.E{Key: "status", Value: deal.Status},
-			bson.E{Key: "winner", Value: winner},
-		}}},
+		bson.D{{"$set", deal.toMongoFormat()}},
 	)
 	return err
 }

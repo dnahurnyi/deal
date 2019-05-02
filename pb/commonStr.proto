@@ -86,6 +86,9 @@ message DealDocument {
   string final_version = 4;
   string status = 5;
   string winner = 6;
+  string blamed = 7;
+  string type = 8;
+  int64 justice_count = 9;
 }
 
 enum serviceId {

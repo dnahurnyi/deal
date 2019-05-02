@@ -29,6 +29,9 @@ type grpcServer struct {
 	dealTimeout             grpctransport.Handler
 	judgeAcceptDealDocument grpctransport.Handler
 	judgeDecide             grpctransport.Handler
+	createBlameDocument     grpctransport.Handler
+	joinBlame               grpctransport.Handler
+	activateBlame           grpctransport.Handler
 }
 
 func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
@@ -133,7 +136,88 @@ func NewGRPCServer(svc Service, logger log.Logger) pb.DataServiceServer {
 				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
 				grpcutils.VerifyToken(svc.GetPubKey())))...,
 		),
+		createBlameDocument: grpctransport.NewServer(
+			makeCreateBlameDocumentEndpoint(svc),
+			decodeCreateBlameDocumentReq,
+			encodeCreateBlameDocumentResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
+		joinBlame: grpctransport.NewServer(
+			makeJoinBlameEndpoint(svc),
+			decodeJoinBlameReq,
+			encodeJoinBlameResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
+		activateBlame: grpctransport.NewServer(
+			makeActivateBlameEndpoint(svc),
+			decodeActivateBlameReq,
+			encodeActivateBlameResp,
+			append(options, grpctransport.ServerBefore(
+				grpcutils.ParseCookies(),
+				grpcutils.ParseHeader(grpcutils.GRPCAUTHORIZATIONHEADER),
+				grpcutils.VerifyToken(svc.GetPubKey())))...,
+		),
 	}
+}
+
+func (s *grpcServer) ActivateBlame(ctx context.Context, req *pb.ActivateBlameReq) (*pb.ActivateBlameResp, error) {
+	_, resp, err := s.activateBlame.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.ActivateBlameResp), nil
+}
+
+func decodeActivateBlameReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.ActivateBlameReq)
+	return req, nil
+}
+
+func encodeActivateBlameResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.ActivateBlameResp)
+	return &resp, nil
+}
+
+func (s *grpcServer) JoinBlame(ctx context.Context, req *pb.JoinBlameReq) (*pb.JoinBlameResp, error) {
+	_, resp, err := s.joinBlame.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.JoinBlameResp), nil
+}
+
+func decodeJoinBlameReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.JoinBlameReq)
+	return req, nil
+}
+
+func encodeJoinBlameResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.JoinBlameResp)
+	return &resp, nil
+}
+
+func (s *grpcServer) CreateBlameDocument(ctx context.Context, req *pb.CreateBlameDocumentReq) (*pb.CreateBlameDocumentResp, error) {
+	_, resp, err := s.createBlameDocument.ServeGRPC(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return resp.(*pb.CreateBlameDocumentResp), nil
+}
+
+func decodeCreateBlameDocumentReq(_ context.Context, grpcReq interface{}) (interface{}, error) {
+	req := grpcReq.(*pb.CreateBlameDocumentReq)
+	return req, nil
+}
+
+func encodeCreateBlameDocumentResp(_ context.Context, response interface{}) (interface{}, error) {
+	resp := response.(pb.CreateBlameDocumentResp)
+	return &resp, nil
 }
 
 func (s *grpcServer) JudgeDecide(ctx context.Context, req *pb.JudgeDecideReq) (*pb.JudgeDecideResp, error) {

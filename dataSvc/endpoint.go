@@ -53,6 +53,22 @@ func makeGetUserEndpoint(svc Service) endpoint.Endpoint {
 			fmt.Println("[LOG]:", "Failed to convert DB user format to response, err: ", err)
 			return nil, err
 		}
+		success, err := userDB.getSuccess(ctx, svc.getDealsTable())
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to count user success, err: ", err)
+			return nil, err
+		}
+		user.Success = int64(success)
+		fmt.Println("{DEBUG}", "userID: ", userID, " user.JudgeProfile", user.JudgeProfile, " user.IsJudge: ", user.IsJudge)
+		if user.JudgeProfile != nil && user.IsJudge {
+			justice, err := userDB.getJustice(ctx, svc.getDealsTable())
+			fmt.Println("{DEBUG}", "userID: ", userID, " justice, err: ", justice, err)
+			if err != nil {
+				fmt.Println("[LOG]:", "Failed to count judge justice, err: ", err)
+				return nil, err
+			}
+			user.JudgeProfile.Justice = int64(justice)
+		}
 
 		return pb.GetUserResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
@@ -308,6 +324,83 @@ func makeJudgeDecideEndpoint(svc Service) endpoint.Endpoint {
 		err = svc.JudgeDecide(ctx, userID, dealDocID, winner)
 
 		return pb.JudgeDecideResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}
+
+func makeCreateBlameDocumentEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.CreateBlameDocumentReq)
+		tid := req.ReqHdr.Tid
+
+		userID, err := grpcutils.GetUserIDFromJWT(ctx)
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+			return "", err
+		}
+
+		blamedDealID := req.GetBlamedDealId()
+		if len(blamedDealID) == 0 {
+			return "", status.Errorf(codes.InvalidArgument, "Blamed deal ID musn't be empty")
+		}
+		blameReason := req.GetBlameReson()
+		if len(blameReason) == 0 {
+			return "", status.Errorf(codes.InvalidArgument, "Blame reason musn't be empty")
+		}
+
+		blameDocumentID, err := svc.CreateBlameDocument(ctx, userID, blamedDealID, blameReason)
+
+		return pb.CreateBlameDocumentResp{
+			RespHdr:         &pb.RespHdr{Tid: tid, ReqTid: tid},
+			BlameDocumentId: blameDocumentID,
+		}, err
+	}
+}
+
+func makeJoinBlameEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.JoinBlameReq)
+		tid := req.ReqHdr.Tid
+
+		userID, err := grpcutils.GetUserIDFromJWT(ctx)
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+			return "", err
+		}
+
+		blameID := req.GetBlameId()
+		if len(blameID) == 0 {
+			return "", status.Errorf(codes.InvalidArgument, "Blame ID musn't be empty")
+		}
+
+		err = svc.JoinBlame(ctx, userID, blameID)
+
+		return pb.JoinBlameResp{
+			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
+		}, err
+	}
+}
+
+func makeActivateBlameEndpoint(svc Service) endpoint.Endpoint {
+	return func(ctx context.Context, request interface{}) (interface{}, error) {
+		req := request.(*pb.ActivateBlameReq)
+		tid := req.ReqHdr.Tid
+
+		userID, err := grpcutils.GetUserIDFromJWT(ctx)
+		if err != nil {
+			fmt.Println("[LOG]:", "Failed to get user id from token, err: ", err)
+			return "", err
+		}
+
+		blameID := req.GetBlameId()
+		if len(blameID) == 0 {
+			return "", status.Errorf(codes.InvalidArgument, "Blame ID musn't be empty")
+		}
+
+		err = svc.ActivateBlame(ctx, userID, blameID)
+
+		return pb.ActivateBlameResp{
 			RespHdr: &pb.RespHdr{Tid: tid, ReqTid: tid},
 		}, err
 	}

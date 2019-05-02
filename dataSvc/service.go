@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	grpcutils "github.com/DenysNahurnyi/deal/common/grpc"
@@ -27,6 +28,7 @@ type Service interface {
 	DeleteUser(ctx context.Context, userID string) (*UserDB, error)
 	UpdateUser(ctx context.Context, user *UserDB) (*UserDB, error)
 	CreateDealDocument(ctx context.Context, userID string, dealDocument *pb.Pact) (string, error)
+	CreateBlameDocument(ctx context.Context, userID, blamedDealID, blameReason string) (string, error)
 	GetDealDocument(ctx context.Context, dealDocumentID string) (*pb.DealDocument, error)
 	DealTimeout(ctx context.Context, dealDocID string) error
 	OfferDealDocument(ctx context.Context, dealDocId, username string, toJudge bool) error
@@ -34,7 +36,10 @@ type Service interface {
 	OfferJudges(ctx context.Context, dealDocId string) error
 	JudgeAccept(ctx context.Context, judgeID, dealDocId string) error
 	JudgeDecide(ctx context.Context, judgeID, dealDocID, redWon string) error
+	ActivateBlame(ctx context.Context, judgeID, blameID string) error
+	JoinBlame(ctx context.Context, userID, blameID string) error
 	GetPubKey() *rsa.PublicKey
+	getDealsTable() *mongo.Collection
 }
 
 type service struct {
@@ -124,6 +129,10 @@ func (s *service) GetPubKey() *rsa.PublicKey {
 	return s.uKey
 }
 
+func (s *service) getDealsTable() *mongo.Collection {
+	return s.dealDocTable
+}
+
 func (s *service) UpdateUser(ctx context.Context, user *UserDB) (*UserDB, error) {
 	userExist, err := GetUserByIDDB(ctx, user.ID.Hex(), s.userTable)
 	if err != nil {
@@ -148,8 +157,49 @@ func (s *service) UpdateUser(ctx context.Context, user *UserDB) (*UserDB, error)
 	return user, nil
 }
 
+func (s *service) CreateBlameDocument(ctx context.Context, userID, blamedDealID, blameReason string) (string, error) {
+	userDB, err := GetUserByIDDB(ctx, userID, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user from DB, err: ", err)
+		return "", err
+	}
+	if !userDB.IsJudge {
+		return "", fmt.Errorf("Invalid operation, user %s can't blame because he is not judge", userID)
+	}
+	userJustice, err := userDB.getJustice(ctx, s.dealDocTable)
+	if err != nil {
+		return "", fmt.Errorf("Failed to get user %s justice, err: %v", userID, err)
+	}
+	if userJustice < 0 {
+		return "", fmt.Errorf("User %s can't join deal because his justice level is toxic", userID)
+	}
+	if userJustice == 0 {
+		return "", fmt.Errorf("User %s can't join deal because his justice level is useless", userID)
+	}
+	blameDocumentDB, err := createInitBlameDocument(userID, blamedDealID, blameReason, "BLAME", userJustice)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to create blame document, err: ", err)
+		return "", err
+	}
+	blameDocID, err := CreateDealDocumentDB(ctx, blameDocumentDB, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
+		return "", err
+	}
+	userDB.DealDocs = append(userDB.DealDocs, blameDocID)
+	// This is irreversible so once you created it, you participate in it
+	userDB.Participating = append(userDB.Participating, blameDocID)
+
+	err = UpdateUserDB(ctx, userID, userDB, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to add deal document to users, err: ", err)
+		return "", err
+	}
+	return blameDocID, err
+}
+
 func (s *service) CreateDealDocument(ctx context.Context, userID string, dealDocument *pb.Pact) (string, error) {
-	dealDocumentDB, err := createInitDealDocument(userID, dealDocument.GetContent(), dealDocument.GetTimeout())
+	dealDocumentDB, err := createInitDealDocument(userID, dealDocument.GetContent(), dealDocument.GetTimeout(), "COMMON")
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to create deal document, err: ", err)
 		return "", err
@@ -175,7 +225,7 @@ func (s *service) CreateDealDocument(ctx context.Context, userID string, dealDoc
 	return dealDocID, err
 }
 
-func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB, error) {
+func createInitDealDocument(redUserID, content, timeout, docType string) (DealDocumentDB, error) {
 	// Checks
 	if len(redUserID) == 0 {
 		fmt.Println("[LOG] Invalid input, userID is invalid")
@@ -188,6 +238,10 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 	if len(timeout) == 0 {
 		fmt.Println("[LOG] Invalid input, timeout is invalid")
 		return DealDocumentDB{}, errors.New("Invalid input, timeout is invalid: " + timeout)
+	}
+	if len(docType) == 0 {
+		fmt.Println("[LOG] Invalid input, docType is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, docType is invalid: " + docType)
 	}
 
 	redSide := SideDB{
@@ -210,11 +264,83 @@ func createInitDealDocument(redUserID, content, timeout string) (DealDocumentDB,
 		Timeout: timeout,
 	}
 	return DealDocumentDB{
+		Type:         docType,
 		Pacts:        []PactDB{firstPact},
 		FinalVersion: firstPact.Version,
 		Status: []Status{
 			Status{
 				Name: "INITIAL DEAL STAGE",
+				Time: time.Now(),
+			},
+		},
+	}, nil
+}
+
+func createInitBlameDocument(redUserID, blamedDealID, content, docType string, justiceCount int) (DealDocumentDB, error) {
+	// Checks
+	if len(redUserID) == 0 {
+		fmt.Println("[LOG] Invalid input, userID is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, userID is invalid: " + redUserID)
+	}
+	// In case of blame deal blue side will contain deal ID as participant and it will accept deal autonatically
+	if len(blamedDealID) == 0 {
+		fmt.Println("[LOG] Invalid input, blamedDealID is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, blamedDealID is invalid: " + blamedDealID)
+	}
+	if justiceCount <= 0 {
+		fmt.Println("[LOG] Invalid input, justiceCount is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, justiceCount is invalid: " + strconv.Itoa(justiceCount))
+	}
+	if len(content) == 0 {
+		fmt.Println("[LOG] Invalid input, content is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, content is invalid: " + content)
+	}
+	if len(docType) == 0 {
+		fmt.Println("[LOG] Invalid input, docType is invalid")
+		return DealDocumentDB{}, errors.New("Invalid input, docType is invalid: " + docType)
+	}
+
+	redSide := SideDB{
+		Type: pb.SideType_RED,
+		Participants: []ParticipantDB{
+			ParticipantDB{
+				ID:       redUserID,
+				Accepted: true,
+			},
+		},
+	}
+	blueSide := SideDB{
+		Type: pb.SideType_BLUE,
+		Participants: []ParticipantDB{
+			ParticipantDB{
+				ID:       blamedDealID,
+				Accepted: true,
+			},
+		},
+	}
+	firstPact := PactDB{
+		Content: content,
+		Red:     redSide,
+		Blue:    blueSide,
+		Version: "initial(#1)",
+	}
+	return DealDocumentDB{
+		Type:         docType,
+		Pacts:        []PactDB{firstPact},
+		FinalVersion: firstPact.Version,
+		JusticeCount: justiceCount,
+		Judge: SideDB{
+			Type: pb.SideType_JUDGE,
+			Participants: []ParticipantDB{
+				ParticipantDB{
+					ID:       redUserID,
+					Accepted: true,
+				},
+			},
+		},
+		Status: []Status{
+			Status{
+				Name: "INITIAL BLAME DEAL STAGE",
 				Time: time.Now(),
 			},
 		},
@@ -441,7 +567,7 @@ func (s *service) JudgeAccept(ctx context.Context, judgeID, dealDocID string) er
 					return err
 				}
 				// All participants accepted, deal is ready to wait for resolve
-				err = UpdateDealStatus(ctx, dealDocID, "ALL_ACCEPTED", s.dealDocTable)
+				err = JudgeAcceptDeal(ctx, judgeID, dealDocID, s.dealDocTable)
 				if err != nil {
 					fmt.Println("[LOG]:", "Failed to update deal "+dealDocID+" status: ", err)
 					return err
@@ -510,7 +636,7 @@ func (s *service) SendDealToWatcher(ctx context.Context, dealDoc *DealDocumentDB
 
 // DealTimeout can be called only by watcherSvc that watch a timer for deal timeout
 func (s *service) DealTimeout(ctx context.Context, dealDocID string) error {
-	fmt.Println("[LOG]:", "Inside DealTimeout")
+	fmt.Println("[LOG]:", "Inside DealTimeout, docID: ", dealDocID)
 	dealDoc, err := GetDealDocByIdDB(ctx, dealDocID, s.dealDocTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get deal document current pact: ", err)
@@ -563,6 +689,7 @@ func (s *service) DealTimeout(ctx context.Context, dealDocID string) error {
 }
 
 func notifyParticipantAboutResult(ctx context.Context, dealDocID string, participant ParticipantDB, status string, userTable *mongo.Collection) error {
+	fmt.Println("{DEBUG}:", "Inside notifyParticipantAboutResult")
 	fmt.Println("{DEBUG}:", "Update status of "+participant.ID+" to status "+status)
 	// Get user
 	user, err := GetUserByIDDB(ctx, participant.ID, userTable)
@@ -578,14 +705,12 @@ func notifyParticipantAboutResult(ctx context.Context, dealDocID string, partici
 		}
 	}
 	if partDealIndex == -1 {
+		fmt.Println("{DEBUG}:", "User "+participant.ID+" doesn't participate in deal "+dealDocID)
 		return errors.New("User " + participant.ID + " doesn't participate in deal " + dealDocID)
 	}
 	// Move from participating to deal_results
 	user.Participating = append(user.Participating[:partDealIndex], user.Participating[partDealIndex+1:]...)
-	user.DealResults = append(user.DealResults, DealResult{
-		DealID: dealDocID,
-		Status: status,
-	})
+	user.DealResults = append(user.DealResults, dealDocID)
 	err = UpdateUserDB(ctx, participant.ID, user, userTable)
 	if err != nil {
 		return fmt.Errorf("Failed to notify user %s about of %s result of deal %s", participant.ID, status, dealDocID)
@@ -604,6 +729,7 @@ func (s *service) JudgeDecide(ctx context.Context, judgeID, dealDocID, winner st
 	if dealDoc == nil {
 		return fmt.Errorf("No deal with id %s, error: %v", dealDocID, err)
 	}
+	// Get judge profile
 	judge, err := GetUserByIDDB(ctx, judgeID, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to get judge: ", err)
@@ -612,6 +738,7 @@ func (s *service) JudgeDecide(ctx context.Context, judgeID, dealDocID, winner st
 	if judge == nil {
 		return fmt.Errorf("No judge with id %s, error: %v", judgeID, err)
 	}
+	// Check whether judge participate in the deal
 	participatingInDeal := false
 	for _, participatingDealID := range judge.JudgeProfile.Participatings {
 		if participatingDealID == dealDocID {
@@ -622,9 +749,178 @@ func (s *service) JudgeDecide(ctx context.Context, judgeID, dealDocID, winner st
 	if !participatingInDeal {
 		return fmt.Errorf("Judge %s doesn't participate in deal %s", judgeID, dealDocID)
 	}
-	err = SetDealWinner(ctx, dealDocID, winner, s.dealDocTable)
+	err = SetDealWinner(ctx, dealDocID, winner, s.dealDocTable, s.userTable)
 	if err != nil {
 		fmt.Println("[LOG]:", "Failed to set deal winner: ", err)
 	}
+	err = MakeDecision(ctx, judge, dealDocID, winner, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to update judge decisions stats: ", err)
+	}
 	return err
+}
+
+func (s *service) JoinBlame(ctx context.Context, userID, blameID string) error {
+	userDB, err := GetUserByIDDB(ctx, userID, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user %s from DB, err: ", userID, err)
+		return err
+	}
+	if !userDB.IsJudge {
+		return fmt.Errorf("User %s can't join blame %s because he is not a judge", userID, blameID)
+	}
+	for _, pD := range userDB.Participating {
+		if pD == blameID {
+			return fmt.Errorf("User %s can't join blame %s because he is already participating", userID, blameID)
+		}
+	}
+	userJustice, err := userDB.getJustice(ctx, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get user %s justice, err: %v", userID, err)
+	}
+	// Gotcha, hacker
+	if userJustice < 0 {
+		return fmt.Errorf("User %s can't join blame %s because his justice level is toxic", userID, blameID)
+	}
+	if userJustice == 0 {
+		return fmt.Errorf("User %s can't join blame %s because his justice level is useless", userID, blameID)
+	}
+	// Update user deals for participation and judge
+	blameDoc, err := GetDealDocByIdDB(ctx, blameID, s.dealDocTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get blame %s document, err: ", blameID, err)
+		return err
+	}
+	if blameDoc.Completed {
+		return fmt.Errorf("User %s can't join blame %s because it's already completed", userID, blameID)
+	}
+	for i, p := range blameDoc.Pacts {
+		if p.Version == blameDoc.FinalVersion {
+			// We need to update this pact
+			blameDoc.Pacts[i].Red.Participants = append(blameDoc.Pacts[i].Red.Participants, ParticipantDB{
+				ID:       userID,
+				Accepted: true,
+			})
+			// Add new judge and increase justice
+			blameDoc.Judge.Participants = append(blameDoc.Judge.Participants, ParticipantDB{
+				ID:       userID,
+				Accepted: true,
+			})
+			blameDoc.JusticeCount += userJustice
+			break
+		}
+	}
+	// Save deal document
+	err = UpdateDeal(ctx, *blameDoc, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("User %s can't join deal because his justice level is useless")
+	}
+	// Update user
+	userDB.Participating = append(userDB.Participating, blameID)
+	userDB.JudgeProfile.Decisions = append(userDB.JudgeProfile.Decisions, Decision{
+		DealID: blameID,
+		Winner: "Blame",
+		When:   time.Now().String(),
+	})
+
+	err = UpdateUserDB(ctx, userID, userDB, s.userTable)
+	if err != nil {
+		return fmt.Errorf("Failed to update user %s, err: %v", userID, err)
+	}
+	return nil
+}
+
+func (s *service) ActivateBlame(ctx context.Context, judgeID, blameID string) error {
+	userDB, err := GetUserByIDDB(ctx, judgeID, s.userTable)
+	if err != nil {
+		fmt.Println("[LOG]:", "Failed to get user %s from DB, err: ", judgeID, err)
+		return err
+	}
+	if !userDB.IsJudge {
+		return fmt.Errorf("User %s can't join blame %s because he is not a judge", judgeID, blameID)
+	}
+	participation := false
+	for _, pD := range userDB.Participating {
+		if pD == blameID {
+			participation = true
+			break
+		}
+	}
+	if !participation {
+		return fmt.Errorf("User %s can't activate blame %s because he doesn't participate in it", judgeID, blameID)
+	}
+	// Ok, user can activate blame, let's check whether blame is possible to activate with current justiceCount
+	blameDoc, err := GetDealDocByIdDB(ctx, blameID, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get blame %s document, err: %v", blameID, err)
+	}
+	if blameDoc.Completed {
+		return fmt.Errorf("User %s can't activate blame %s because it's already activated", judgeID, blameID)
+	}
+	var blamedDealID string
+	for _, p := range blameDoc.Pacts {
+		if p.Version == blameDoc.FinalVersion {
+			blamedDealID = p.Blue.Participants[0].ID
+		}
+	}
+	blamedDealDoc, err := GetDealDocByIdDB(ctx, blamedDealID, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to get blamed deal document %s document, err: %v", blamedDealID, err)
+	}
+	if blamedDealDoc.JusticeCount > blameDoc.JusticeCount {
+		return fmt.Errorf("User %s can't activate blame %s because bale justice count %d is not enough, %d needed", judgeID, blameID, blameDoc.JusticeCount, blamedDealDoc.JusticeCount)
+	}
+
+	blameDoc.Completed = true
+	blameDoc.Blamed = "No"
+	err = UpdateDeal(ctx, *blameDoc, s.dealDocTable)
+	if err != nil {
+		return fmt.Errorf("Failed to activate blamed deal document %s, err: %v", blamedDealID, err)
+	}
+	// Reverse status of blamed deals (that can be chain of documents like BLAME -> BLAME -> ... -> COMMON)
+	err = s.blameDeal(ctx, *blamedDealDoc)
+	if err != nil {
+		return fmt.Errorf("Failed blame chain of documents starting from document %s, err: %v", blamedDealDoc.ID.Hex(), err)
+	}
+	return nil
+}
+
+func (s *service) blameDeal(ctx context.Context, deal DealDocumentDB) error {
+	// If you want to blame simple dealm=, just chnage status and uodate it
+	switch deal.Type {
+	case "COMMON":
+		// We reverse, so it the deal was blamed, we have to reverse it (by blaming the blame)
+		if deal.Blamed == "Yes" {
+			deal.Blamed = "No"
+		}
+		if deal.Blamed == "No" {
+			deal.Blamed = "Yes"
+		}
+		return UpdateDeal(ctx, deal, s.dealDocTable)
+	// To bale the "BLAME" you have to do that recursively
+	case "BLAME":
+		if deal.Blamed == "Yes" {
+			deal.Blamed = "No"
+		}
+		if deal.Blamed == "Yes" {
+			deal.Blamed = "No"
+		}
+		err := UpdateDeal(ctx, deal, s.dealDocTable)
+		if err != nil {
+			fmt.Errorf("Failed to update deal document %s, err: %v", deal.ID.Hex(), err)
+		}
+		var blamedDealID string
+		for _, p := range deal.Pacts {
+			if p.Version == deal.FinalVersion {
+				blamedDealID = p.Blue.Participants[0].ID
+			}
+		}
+		blamedDealDoc, err := GetDealDocByIdDB(ctx, blamedDealID, s.dealDocTable)
+		if err != nil {
+			return fmt.Errorf("Failed to get blamed deal document %s, err: %v", blamedDealID, err)
+		}
+		return s.blameDeal(ctx, *blamedDealDoc)
+	default:
+		return fmt.Errorf("Can't blame deal %s, with unknown type: %v", deal.ID.Hex(), deal.Type)
+	}
 }
